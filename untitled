@@ -1,0 +1,1 @@
+python3 figaro.py -i ~/storage/svir/new/dada2_pipeline/in/filtered/ -o ~/storage/svir/new/dada2_pipeline/in/f_put -a 252   -f 20 -r 20

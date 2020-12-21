@@ -1,0 +1,88 @@
+---
+title: "Krim_RT"
+author: "GrGladkov"
+date: "12 10 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+library(microbenchmark)
+
+rt <- read.csv2("~/storage/krim_chrono/qpcr_crimea.csv", sep = ",")
+rt <- rt[,1:7]
+rt_d <- rt %>% 
+  as_tibble() %>% 
+  mutate(Quan_mean = as.numeric(levels(Quan_mean))[Quan_mean]) %>% 
+  mutate(Tech_sd = as.numeric(levels(Tech_sd))[Tech_sd]) %>% 
+  mutate(Horizont = factor(Horizont, levels=c("О", "AY", "С")))
+
+rt %>% as_tibble() %>% 
+  mutate(Quan_mean = as.numeric(as.character(Quan_mean))) %>% 
+  mutate(Tech_sd = as.numeric(levels(Tech_sd))[Tech_sd]) %>% 
+  mutate(Horizont = factor(Horizont, levels=c("О", "AY", "С"))) %>% 
+  unite(For_Merge, c(Site, Horizont), sep = "-") %>% 
+  mutate(For_Merge = as.factor(For_Merge)) %>% 
+  group_by(For_Merge) %>% 
+  dplyr::summarise(mean = mean(Quan_mean))
+              
+              
+rt_d
+
+
+```
+
+## Including Plots
+
+
+
+```{r , echo=FALSE}
+
+ggplot(data = rt_d, aes(y = log2(Quan_mean), x = Site, fill = Horizont)) + facet_wrap(~ Type) +
+  geom_boxplot() + 
+  geom_point(position=position_dodge(width=0.75),aes(group=Horizont), alpha = 0.5) +
+  theme_bw()
+
+
+```
+
+```{r, fig.height=12, fig.width=14}
+library(RColorBrewer)
+library(viridis)
+display.brewer.all(colorblindFriendly = T)
+cols <- brewer.pal(3,"Dark2")
+
+ggplot(data = filter(rt_d, Type == "bacteria"), aes(y = log2(Quan_mean), x = Site, fill = Horizont)) + 
+  geom_boxplot(position = position_dodge2(width = 0.3, preserve = "single"),outlier.size = 3) + 
+  scale_fill_viridis_d(option = "plasma", name = "soil horizon") +
+  labs(y = "log2 number  of rSSU per 1g/soil",
+       colour = "soil horizon",
+       x = "site") +
+  theme_bw() +
+  theme(text=element_text(size=30),
+        axis.title.x = element_text(size = 25),
+        axis.title.y = element_text(size = 25),
+        legend.key.size = unit(20, "mm"))
+
+ggplot(data = filter(rt_d, Type == "bacteria"), aes(y = log2(Quan_mean), x = Site)) + 
+  geom_pointrange(position=position_jitterdodge(dodge.width=0.7, jitter.width =0.5),
+                  aes(ymin = log2(Quan_mean - Tech_sd), ymax =  log2(Quan_mean + Tech_sd), color = Horizont),
+                  size = 1.5) +  
+  scale_colour_viridis_d(option = "plasma", name = "soil horizon", end = 0.8) +
+  labs(y = "log2 number  of SSU rRNA per 1g/soil", 
+       colour = "soil horizon",
+       x = "site") +
+  theme_bw() +
+  facet_grid(~Site, scales = "free", space = "free") +
+  theme(text=element_text(size=30),
+        axis.title.x = element_text(size = 25),
+        axis.title.y = element_text(size = 25),
+        axis.text.x=element_blank(),
+        legend.key.size = unit(20, "mm"))
+
+```

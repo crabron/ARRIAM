@@ -1,0 +1,325 @@
+mkdir XXX
+ls | grep XXX | xargs cp -t  ~/storage/XXX/
+
+ls | grep shapkin | xargs cp -t ~/storage/plates/others
+
+mult <- 4 # TRUE
+mlt <- 4 # NULL
+path <- "/home/gladkov/storage/mal/temp"
+path_trein_set <- "/home/gladkov/storage/raw_fires/new2_dada/silva_nr_v132_train_set.fa"
+path_trein_set_species <- "/home/gladkov/storage/raw_fires/new2_dada/silva_species_assignment_v132.fa"
+#map_path <-"fire-map-ex.tsv"
+name_Brief <- "fire2_brief.tsv"
+#map_column_with_IDs <- "ID"
+
+library(dada2)
+library(Biostrings)
+library(DECIPHER)
+library(phyloseq)
+library(seqinr)
+library(data.table)
+library(metagMisc)
+library(ampvis2)
+library(tibble)
+
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+on.exit()
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(200,180), trimLeft=20, maxN=0, maxEE=c(2,3), rm.phix=TRUE, compress=TRUE, multithread=mult)
+errF <- learnErrors(filtFs, multithread=mult)
+errR <- learnErrors(filtRs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult)
+dadaRs <- dada(derepRs, err=errR, multithread=mult)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+st.brief.t.df <- data.frame(t(st.brief))
+write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+
+#IN BASH
+
+conda activate qiime2-2019.1
+sed -i '1s/^/#OTU_ID/' otu_table.txt 
+biom convert -i otu_table.txt -o otu_table.biom --to-hdf5
+
+qiime tools import \
+  --input-path rep_seq.fasta \
+  --output-path rep_seq.qza \
+  --type 'FeatureData[Sequence]'
+
+qiime fragment-insertion sepp --i-representative-sequences rep_seq.qza  --o-tree insertion-tree.qza  --o-placements insertion-placements.qza --p-threads 16
+
+qiime tools import \
+  --input-path otu_table.biom \
+  --type 'FeatureTable[Frequency]' \
+  --input-format BIOMV210Format \
+  --output-path feature-table.qza
+
+qiime fragment-insertion filter-features \
+  --i-table feature-table.qza \
+  --i-tree insertion-tree.qza \
+  --o-filtered-table filtered_table.qza \
+  --o-removed-table removed_table.qza
+
+unzip -p filtered_table.qza */data/* > filtered_table.biom
+biom convert -i  filtered_table.biom -o filtered_table.txt --to-tsv
+sed -i '1d' filtered_table.txt
+unzip -p insertion-tree.qza */data/* > tree.nwk
+
+#R AGAIN
+
+filt.otu <-t(as.data.frame(fread("filtered_table.txt")))
+first <-  filt.otu[1,]
+filt.otu <- filt.otu[-c(1),]
+colnames(filt.otu) <-  first
+class(filt.otu) <- "numeric"
+filt.otu.matrix <- as.matrix(filt.otu)
+#head.col <- scan("head.txt", character(), quote = "")
+#rownames(filt.otu.matrix) <- head.col
+tree <- read_tree(treefile="tree.nwk")
+
+
+mapp <- read.csv(map_path , header=TRUE, sep="\t")
+map <- data.frame(row.names=map_column_with_IDs, mapp)
+
+ps <- phyloseq(otu_table(filt.otu.matrix, taxa_are_rows=FALSE), 
+               sample_data(map), 
+               tax_table(taxa),
+               phy_tree(tree))
+
+
+phyloseq_to_amp <- function(ps){
+my_otu_table <- phyloseq_to_df(ps, addtax = T, addtot = F, addmaxrank = F, sorting = "abundance")
+my_otu_table <- column_to_rownames(my_otu_table, var="OTU")
+last_column <- ncol(my_otu_table)
+my_otu_table <- my_otu_table[,c(8:last_column,1:7)]
+setnames(my_otu_table, old=c("domain","phylum","class","order","family","genus","species"), new=c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"))
+my_metadata <- as_tibble(sample_data(ps))
+my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+my_tree <- phy_tree(ps)
+amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+return(amp.ps)
+}
+
+phyloseq_to_amp_dd2t <- function(ps){
+my_otu_table <- phyloseq_to_df(ps, addtax = T, addtot = F, addmaxrank = F, sorting = "abundance")
+my_otu_table <- column_to_rownames(my_otu_table, var="OTU")
+last_column <- ncol(my_otu_table)
+my_otu_table <- my_otu_table[,c(8:last_column,1:7)]
+my_metadata <- as_tibble(sample_data(ps))
+my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+my_tree <- phy_tree(ps)
+amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+return(amp.ps)
+}
+
+phyloseq_to_amp_true <- function(ps){
+
+OTU1 = as(otu_table(ps), "matrix")
+OTU1 <- t(OTU1)
+OTUdf = as.data.frame(OTU1)
+taxa.ps <- as(tax_table(ps), "matrix")
+taxa.df = as.data.frame(taxa.ps)
+my_otu_table <- merge(OTUdf, taxa.df, by=0)
+my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+my_tree <- phy_tree(ps)
+amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+return(amp.ps)
+}
+
+
+library(vegan)
+metadata <- as(sample_data(dd2t.ps), "data.frame")
+adonis(distance(dd2t.ps, method="wunifrac") ~ Horizont, data = metadata)
+
+AC.ps <- prune_samples(sample_data(dd2t.ps)$Horizont %in% c("AC"), dd2t.ps)
+
+https://github.com/joey711/phyloseq/issues/694
+https://github.com/umerijaz/microbiomeSeq/wiki/Differential-Abundance
+
+setwd("storage/mal")
+NB_sig <- differential_abundance(ps, grouping_column = "Repeat",output_norm=NULL, pvalue.threshold=0.05,lfc.threshold=0,filename="NB.txt")
+p <- plot_MDA(NB_sig$importance, top.taxa=30)
+amp[["abund"]][c("Seq29"),]
+top_genera_physeq <- prune_taxa(top_taxa(ps, n = 100), ps)
+amp_heatmap(amp, group_by = "Description", tax_aggregate = "Species", tax_add = "Class", tax_show = 50, measure="median", order_x_by = c("1_C", "2_(o)", "2_AY", "2_BF", "2_C", "3_O", "3_(e)", "3_BF", "3_BF2", "3_BC", "3_C", "4_O","4_E",  "4_BHF","4_BC", "4_C", "5_O", "5_E","5_BF",  "5_BC"))
+
+http://joey711.github.io/phyloseq-extensions/DESeq2.html
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5298992/
+https://github.com/umerijaz/microbiomeSeq/blob/master/R/differential_abundance.R
+
+
+
+
+
+diagdds = phyloseq_to_deseq2(kostic, ~ DIAGNOSIS)
+diagdds = DESeq(diagdds, test="Wald", fitType="parametric")
+res = results(diagdds, cooksCutoff = FALSE)
+
+alpha = 0.1
+beta = 1
+gamma = 100
+sigtab = res[which(res$padj < alpha & res$baseMean > gamma & res$log2FoldChange > beta), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(AC.Lowfire.ps)[rownames(sigtab), ], "matrix"))
+
+alpha <- 0.05 # Threshold on the adjusted p-value
+cols <- densCols(res$log2FoldChange, res$baseMean)
+plot(res$log2FoldChange, res$baseMean, col=cols, panel.first=grid(),
+     main="Volcano plot", xlab="Effect size: log2(fold-change)", ylab="BaseMean",
+     pch=20, cex=0.6)
+abline(v=0)
+abline(v=c(-1,1), col="brown")
+abline(h=-log10(alpha), col="brown")
+
+gn.selected <- abs(res$log2FoldChange) > 2.5 & res$baseMean < alpha 
+text(res$log2FoldChange,
+     res$baseMean,
+     lab=rownames(res), cex=0.4)
+
+diagdds = DESeq(diagdds, test="Wald", fitType="parametric")
+res = results(diagdds, cooksCutoff = FALSE)
+sigtab = cbind(as(res, "data.frame"), as(tax_table(AC.Lowfire.ps)[rownames(res), ], "matrix"))
+
+diagdds_AY.H = phyloseq_to_deseq2(AY.High.ps, ~ Repeats)
+diagdds_AY.H = DESeq(diagdds_AY.H, test="Wald", fitType="parametric")
+res_AY.H = results(diagdds_AY.H, cooksCutoff = FALSE)
+
+diagdds_AY.L = phyloseq_to_deseq2(AY.Low.ps, ~ Repeats)
+diagdds_AY.L = DESeq(diagdds_AY.L, test="Wald", fitType="parametric")
+res_AY.L = results(diagdds_AY.L, cooksCutoff = FALSE)
+write.table(sigtab, file = "AC.L.more.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+http://qiime.org/scripts/beta_diversity.html
+http://qiime.org/scripts/compare_distance_matrices.html
+
+
+
+qiime feature-table group --i-table feature-table.qza --m-metadata-file fire-map-ex.tsv --m-metadata-column Repeats --o-grouped-table gr-feature-table.qza --p-mode median-ceiling --p-axis sample
+qiime metadata distance-matrix  --m-metadata-file gr-feature-table.qza fire_map_with_elements_and_nice_pH.csv  --m-metadata-column 2
+
+qiime metadata distance-matrix --m-metadata-file gr-feature-table.qza  --m-metadata-column 1 --o-distance-matrix distance.qza
+
+qiime metadata distance-matrix --m-metadata-file  fire_map_with_elements_and_nice_pH.csv  --m-metadata-column 1 --o-distance-matrix distance.qza
+
+amp_ordinate(amp, type = "PCA", transform = "hellinger", distmeasure = "wunifrac", sample_color_by="Repeats", sample_colorframe="Repeats", sample_colorframe_label="Repeats")
+
+ggarrange(p.low, p.h, p.c,  labels= c("низовой пожар","верховой пожар","контроль"), ncol = 3, nrow = 1,label.y = 0.08)
+p.h <- amp_venn(Low.amp, group_by = "Horizont", cut_a = 0.000001, cut_f=0.000001)
+
+AY.df.merge.amp <- amp_heatmap(AY.amp ,group_by = "Site",tax_aggregate = "Genus",normalise = TRUE, tax_show = 10000, textmap=TRUE)
+bS.AY.C <- cut( AY.df.merge.amp$Control, breaks = c(0, 0.005, 0.01, 0.05, 0.1,0.5, 1, 5, 10, 50))
+prop.AY.C <-  as.data.frame(prop.table(table(bS.AY.C)))
+colnames(prop.AY.C) <- c("ranks", "AY.Control")
+prop.AY <- merge(... , by="ranks")
+prop <- Reduce(function(x, y) merge(x, y, all=TRUE), list(prop.AC.C, prop.AC.L, prop.AY.C, prop.AY.L))
+prop.AY.melted <- melt(prop.AY, , by="ranks")
+ggplot(prop.AC.melted, aes(ranks, value)) + geom_bar(aes(fill = variable), position = "dodge", stat="identity")
+ggplot(prop.AC.melted, aes(ranks, value)) + geom_bar(aes(fill = variable), position = "dodge", stat="identity") +  facet_wrap(~variable)
+
+kim_dist_plot <- function(ps, fasta, color, label){dist <- dist.dna(fasta)
+fasta.pcoa <- pcoa(dist, correction="none")
+p <- plot_ordination(ps, fasta.pcoa, type = "samples", axes = 1:2,color=color, label=label)
+return(p)
+}
+
+res = results(diagdds)
+res = res[order(res$padj, na.last=NA), ]
+alpha = 0.01
+sigtab = res[(res$padj < alpha), ]
+sigtab = cbind(as(sigtab, "data.frame"), as(tax_table(kostic)[rownames(sigtab), ], "matrix"))
+head(sigtab)
+
+Df R2 Pr(>F)  
+
+weighed
+AY Site       0.38068  0.003 
+AC Site       0.7152   0.001
+C  Site       0.36036  0.001
+
+unweighed
+AY Site       0.22937  0.002
+AC Site       0.29634  0.002
+C  Site       0.25762  0.001
+
+bray
+AY Site      0.45535  0.001
+AC Site      0.68317  0.001
+C  Site      0.46859  0.002
+
+
+C Horizont   2  0.060340 0.0301701  9.5139 0.67889  0.001 ***
+H Horizont   2  0.089546 0.044773  6.4054 0.58736  0.001 ***
+L Horizont   2  0.076441 0.03822  4.0275 0.47229  0.002 **
+
+C Horizont   2    0.9633 0.48165  1.7078 0.27511  0.001 ***
+H Horizont   2    1.1402 0.57010  2.0897 0.31712  0.001 ***
+L Horizont   2    1.1113 0.55567   1.933 0.30049  0.001 ***
+
+
+
+Актиномицеты
+
+CRT
+AY 0.297 1144
+AC 0.117 523
+C 0.160 429
+
+amp_heatmap(amp, group_by = "Site", facet_by = "Horizont", tax_show = 40,tax_aggregate = "Genus", tax_add = "Family", color_vector = c("white","azure4"))
+
+subset_taxa(GlobalPatterns, (Order!="Chloroplast") | (Family!="Mitochondria"))
+ps.f <- subset_taxa(ps, (Order!="Chloroplast") | (Family!="Mitochondria"))
+ps.f <- subset_samples(ps, (ID!="Belimov-24") | (ID!="Belimov-42"))
+
+pop.taxa <- function(physeq, badTaxa){
+    allTaxa = taxa_names(physeq)
+    myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+    return(prune_taxa(myTaxa, physeq))
+}
+
+
+delete_mit_chl <- function(ps){
+    badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+    ps <- pop_taxa(ps, badTaxa)
+    badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+    ps <- pop_taxa(ps, badTaxa)
+    return(ps)
+}

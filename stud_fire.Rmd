@@ -1,0 +1,221 @@
+---
+title: "stud_ire"
+author: "GrGladkov"
+date: "25 11 2020"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/stud/")
+```
+
+```{r}
+#first run - with controls(its), pool - true, 2.5ee, 220-180
+# ls | grep Abacumov-Nal | xargs cp -t  ~/storage/nal/in
+
+setwd("~/storage/stud/")
+getwd()
+path = "in/"
+path_trein_set = "~/storage/somebases/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.fa"
+name_Brief = "nameBrief.txt"
+
+truncLen = "220,180"
+maxEE = "2,5"
+mult = TRUE
+mlt = NULL
+
+library(dada2)
+packageVersion("dada2")
+```
+
+
+```{r}
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+
+fnFs  
+fnRs
+```
+
+```{r}
+
+plotQualityProfile(fnFs[1:2])
+
+```
+
+
+```{r}
+
+plotQualityProfile(fnRs[1:2])
+
+```
+
+```{r}
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+filtFs
+# out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(200,150), trimLeft=c(20,19), maxN=0, maxEE=c(2,5), rm.phix=TRUE, compress=TRUE, multithread=mult)
+
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(200,150), truncQ = 0, maxN=0, maxEE=c(2,5), rm.phix=TRUE, compress=TRUE, multithread=mult)
+out
+
+fnFsFilt <- sort(list.files("~/storage/stud/in/filtered/", pattern="_F_filt.fastq.gz", full.names = TRUE))
+fnRsFilt <- sort(list.files("~/storage/stud/in/filtered/", pattern="_R_filt.fastq.gz", full.names = TRUE))
+```
+
+```{r}
+plotQualityProfile(fnFsFilt[1:2])
+?filterAndTrim
+```
+
+
+```{r}
+plotQualityProfile(fnRsFilt[1:2])
+```
+
+```{r}
+errF <- learnErrors(filtFs, multithread=mult)
+errR <- learnErrors(filtRs, multithread=mult)
+```
+
+```{r}
+plotErrors(errF, nominalQ=TRUE)
+```
+
+
+```{r}
+plotErrors(errR, nominalQ=TRUE)
+```
+
+```{r}
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult, pool=TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread=mult, pool=TRUE)
+
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+st.brief %>% as.data.frame()
+dadaFs[1]
+dadaRs[2]
+
+do.call(rbind.data.frame, getDadaOpt())
+ldply(getDadaOpt(), data.frame, )
+write.csv2(unlist(getDadaOpt()), file = "dadaRaram")
+list.files()
+getDadaOpt()
+```
+
+```{r}
+b <- sum(seqtab.nochim)/sum(seqtab)
+a
+```
+```{r}
+b
+```
+
+```{r}
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+data.frame(t(st.brief))
+```
+
+```{r}
+
+dadaFs <- dada(filtFs, err=errF, multithread=mult, pool=TRUE)
+dadaRs <- dada(filtRs, err=errR, multithread=mult, pool=TRUE)
+```
+
+
+```{r}
+
+mergers <- mergePairs(dadaFs, filtFs, dadaRs, filtRs, verbose=TRUE)
+
+seqtab <- makeSequenceTable(mergers)
+rownames(seqtab) <- sample.names
+seqtab
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+
+colnames(st.brief) <- names(briefToSeq) 
+st.brief
+length(rownames(seqtab.nochim))
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+```
+
+
+```{r}
+sum(seqtab.nochim)/sum(seqtab)
+seqtab.nochim
+```
+
+```{r}
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+track
+```
+
+
+
+
+```{r}
+briefToSeq <- colnames(seqtab.nochim)
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+rownames(taxa.dada2) <- colnames(seqtab.nochim)
+taxa.dada2
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

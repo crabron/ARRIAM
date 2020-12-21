@@ -2,7 +2,6 @@
 
 from sys import argv
 import numpy as np
-import matplotlib.pyplot as plt
 from scipy.stats import mannwhitneyu as man
 import biom
 import pandas
@@ -16,15 +15,20 @@ import traceback
 import time
 import collections
 import argparse
+import re
 
 parser = argparse.ArgumentParser(description="Convert data to frequency, calculate which otu significant change. Use Man-Whitney stats for pvalue calculation. Run-time version of code. Input - biom table in h5py format. Output - pairwise comparison data in xlsx files(or tsv) with OTU proporion and taxa, csv log file with data of OTU quantity adjustment.Sample ID have to be in format [someIDname].[replication-identificator(number)-without-dots] Examples: C.dir23.1 or someSoil.ty!")
 parser.add_argument("-t", "--treshold", help="Treshold for frequency values. Default - 0.005",action="store", dest="tresh",default='0.005')
 parser.add_argument("-i", "--imput", help="imput biom table",action="store", dest="inp",required=True)
 parser.add_argument("-m", "--map", help="ID mapping file. Requires text file with tab delimiter between compared samples and line break (in unix format) between sample pairs. Default - everything with everything",action='store', default="all", dest="map")
 parser.add_argument("-o", "--out", help="tsv - out in tsv tables. Default - export to xlsx Excel workbook.",action='store', default="xlsx", dest="export")
+parser.add_argument("-c", "--chloroplast", help="yes - delete otus there identificated as chloroplasts ",action='store', default="no", dest="chloroplast")
+
 
 args = parser.parse_args()
 
+
+chloroplast = args.chloroplast
 tresh = args.tresh
 export = args.export
 inp = args.inp
@@ -154,6 +158,13 @@ def pfilter(table, ilist):
     ftable = table[ids]
     return(ftable)
 
+def chlfilt(df, chl):
+    if chl == 'yes':
+        table = df[df.taxonomy.str.contains('Chloroplast') == False]
+    else:
+        table = df
+    return table
+
 def main(inp, ID):
     try:
         if not os.path.exists("script"):
@@ -162,7 +173,7 @@ def main(inp, ID):
         with open(ID, "r") as idfile:
             idf = idfile.readlines()
             lenidf = len(idf)
-            if lenidf >= 2:
+            if lenidf >= 0:
                 table = alltransform(inp)
             fjl=0
             ss = len(idf)
@@ -175,19 +186,20 @@ def main(inp, ID):
 
                 nonn_line = i.rstrip()
                 ilist = nonn_line.split("\t")
-                if lenidf <= 1:
+                if lenidf <= 0:
                     ftable = filter_otu(inp, ilist)
                     datatable = transform(ftable)
                 else:
                     datatable = pfilter(table, ilist)
+                datatable = chlfilt(datatable, chloroplast)
                 left, right, rttable, summ = ratiometr(datatable, ilist)
                 frttable = ratfilt(left, right, rttable, tresh)
                 frttable = man_y(frttable,left, right)
                 global table_out
                 table_out, table_gen = log(d_out, frttable, ilist)
                 out(ilist, frttable,left, right, table_gen, export)
-        with open("script/log.csv", "w") as l:
-            table_out.to_csv( l , sep='\t')
+        l = open("script/log.csv", "w")
+        table_out.to_csv( l , sep='\t')
         if os.path.isfile("temp2.txt"):   
             os.remove('temp2.txt')
 

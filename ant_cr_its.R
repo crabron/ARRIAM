@@ -28,8 +28,7 @@ REV.orients <- allOrients(REV)
 FWD.orients
 
 fnFs.filtN <- file.path(path, "filtN", basename(fnFs)) # Put N-filterd files in filtN/ subdirectory
-fnRs.filtN <- file.path(path, "filtN", basename(fnRs))
-filterAndTrim(fnFs, fnFs.filtN, fnRs, fnRs.filtN, maxN = 0, multithread = TRUE)
+filterAndTrim(fnFs, fnFs.filtN, maxN = 0, minLen = 100, multithread = TRUE, , maxEE = 2)
 
 primerHits <- function(primer, fn) {
     # Counts number of reads in which the primer is found

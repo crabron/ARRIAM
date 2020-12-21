@@ -1,0 +1,532 @@
+---
+title: "Nal"
+author: "GrGladkov"
+date: "19 11 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/nal/")
+```
+
+```{r}
+#first run - with controls(its), pool - true, 2.5ee, 220-180
+# ls | grep Abacumov-Nal | xargs cp -t  ~/storage/nal/in
+
+setwd("~/storage/nal/")
+path = "in/"
+path_trein_set = "~/storage/somebases/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.fa"
+name_Brief = "nameBrief.txt"
+
+truncLen = "220,180"
+maxEE = "2,5"
+mult = TRUE
+mlt = NULL
+  require(dada2)
+  require(Biostrings)
+  require(DECIPHER)
+  require(phyloseq)
+  require(seqinr)
+  require(data.table)
+  require(metagMisc)
+  require(tibble)
+
+# docker container run --rm -e AMPLICONLENGTH=[amplicon length] -e FORWARDPRIMERLENGTH=[forward primer length] \
+    # -e REVERSEPRIMERLENGTH=[reverse primer length] -v /path/to/fastqs:/data/input \
+    # -v / figaro
+
+# docker container run --rm -e AMPLICONLENGTH=260 -e FORWARDPRIMERLENGTH=20 \
+# -e REVERSEPRIMERLENGTH=19 -v /home/gladkov/storage/nal/in \
+# -v /home/gladkov/storage/nal figaro
+
+# python3 figaro.py -i /home/gladkov/storage/nal/in -o /home/gladkov/storage/nal -a 260 -f 20 -r 19
+
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+  
+plotQualityProfile(fnRs[1:3])
+
+fnFs  
+list.files()
+```
+
+```{r}  
+  sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+  on.exit()
+  filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+  filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+  
+  out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(185,185), trimLeft=20, maxN=0, maxEE=c(6,8), rm.phix=TRUE, compress=TRUE, multithread=mult)
+  errF <- learnErrors(filtFs, multithread=mult)
+  errR <- learnErrors(filtRs, multithread=mult)
+  derepFs <- derepFastq(filtFs, verbose=TRUE)
+  derepRs <- derepFastq(filtRs, verbose=TRUE)
+  # Name the derep-class objects by the sample names
+  names(derepFs) <- sample.names
+  names(derepRs) <- sample.names
+  dadaFs <- dada(derepFs, err=errF, multithread=mult, pool=FALSE)
+  dadaRs <- dada(derepRs, err=errR, multithread=mult, pool=FALSE)
+  mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+  seqtab <- makeSequenceTable(mergers)
+  dim(seqtab)
+  table(nchar(getSequences(seqtab)))
+  getN <- function(x) sum(getUniques(x))
+  seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+  
+  
+  briefToSeq <- colnames(seqtab.nochim)
+  names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+  st.brief <- seqtab.nochim
+  colnames(st.brief) <- names(briefToSeq) 
+  
+  write.table(briefToSeq, file = name_Brief, sep = "\t")
+  
+  #dna <- DNAStringSet(briefToSeq)
+  #alignment <- AlignSeqs(DNAStringSet(dna), anchor=NA,verbose=FALSE, processors = mlt)
+  #writeXStringSet(alignment, file="align.fasta")
+  
+  taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+  taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+  rownames(taxa.dada2.species) <- rownames(briefToSeq)
+  briefToSeq.df <- data.frame(briefToSeq)
+  rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+  rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+  taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+  colnames(taxa)[7] <- "Species"
+  
+  getN <- function(x) sum(getUniques(x))
+  track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+  colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+  rownames(track) <- sample.names
+  write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+  
+  st.brief.t.df <- data.frame(t(st.brief))
+  write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+  
+  briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+  briefToSeq.names <- as.list(rownames(briefToSeq.df))
+  write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+  
+  write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+```
+sed -i '1s/^/#OTU_ID/' otu_table.txt 
+biom convert -i otu_table.txt -o otu_table.biom --to-hdf5
+qiime tools import \
+--input-path rep_seq.fasta \
+--output-path rep_seq.qza \
+--type 'FeatureData[Sequence]'
+qiime fragment-insertion sepp --i-representative-sequences rep_seq.qza --i-reference-database ~/storage/somebases/sepp-refs-gg-13-8.qza --o-tree insertion-tree.qza  --o-placements insertion-placements.qza --p-threads 60  
+qiime tools import \
+--input-path otu_table.biom \
+--type 'FeatureTable[Frequency]' \
+--input-format BIOMV210Format \
+--output-path feature-table.qza
+qiime fragment-insertion filter-features \
+--i-table feature-table.qza \
+--i-tree insertion-tree.qza \
+--o-filtered-table filtered_table.qza \
+--o-removed-table removed_table.qza
+unzip -p filtered_table.qza > filtered_table.biom
+biom convert -i  filtered_table.biom -o filtered_table.txt --to-tsv
+sed -i '1d' filtered_table.txt
+unzip -p insertion-tree.qza */data/* > tree.nwk
+
+
+```{r}
+as_tibble(track, rownames = "ID") %>% arrange(nonchim)
+reps <- readFasta("rep_seq.fasta")
+reps[1]$
+```
+
+
+```{r}
+
+#some SEPP bash tree magic
+map <- read_tsv("mapping_nalchic_2.tsv")
+map <- column_to_rownames(map, "ID")
+map
+
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
+
+
+filt.otu <- read.csv("otu_table.txt" , header=TRUE, sep="\t")
+filt.otu
+colnames(filt.otu)[1] <- "ID"
+filt.otu <- column_to_rownames(filt.otu, "ID")
+filt.otu
+install.packages("naturalsort")
+library(naturalsort)
+filt.otu <- filt.otu[c(naturalsort(colnames(filt.otu)))]
+filt.otu
+colnames(filt.otu) <- rownames(map)
+filt.otu
+# class(filt.otu) <- "numeric"
+
+filt.otu <- as.matrix(filt.otu)
+filt.otu <- t(filt.otu)
+rownames(filt.otu)
+rownames(map)
+
+tree <- read_tree(treefile="tree.nwk")
+
+ps <- phyloseq(otu_table(filt.otu, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa),
+               phy_tree(tree))
+
+
+length(tree$tip.label)
+ps@phy_tree$tip.label
+ps
+
+filt.otu[0,] = rownames(map)
+rownames(filt.otu) == rownames(map)
+
+rownames(taxa)
+
+intersect(rownames(as.data.frame(filt.otu.matrix)), rownames(map)) %>% length()
+```
+
+```{r, fig.height=12, fig.width=5}
+library(tidyverse)
+library(seqinr)
+
+some_rep_fasta <- read.fasta("~/storage/mal/rep_seq.fasta")
+d <- density(getLength(some_rep_fasta))
+d
+sort(getLength(some_rep_fasta), decreasing = TRUE)
+(getLength(some_rep_fasta), decreasing = TRUE)
+quantile(getLength(some_rep_fasta))
+```
+
+```{r}
+saveRDS(ps, file = "ps.rds")
+```
+
+
+```{r}
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+ps.f <- delete_mit_chl(ps)
+ps
+ps.f@sam_data
+```
+
+```{r}
+
+
+```
+
+### Richness/depth correlation.
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+library(phyloseq)
+library(ggplot2)
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Repeat"] <-unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "N_", 2), function(x) x[[2]]))
+  reads.summary["Site"] <- physeq@sam_data$Site
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + geom_point(aes(y=otus, x=log2(reads), color=Site),size=3) + geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Site, "_", Repeat))) + theme_bw()+
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Site, color=Site),method=lm, se=FALSE, ymin = 1) + scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+  # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  return(p1)
+}
+
+plot_rich_reads_samlenames_lm(ps.f)
+
+ps.f2 <- subset_samples(ps.f, sample_names(ps.f) != 'N_95')
+ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_96')
+ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_89')
+ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_31')
+# ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_70')
+ps.f2 <- subset_samples(ps.f2, Site != 'N8-2')
+ps.f2 <- subset_samples(ps.f2, Site != 'N8-3')
+
+plot_rich_reads_samlenames_lm(ps.f2)
+sample_names(ps.f2)
+
+ps.test <- subset_samples(ps.f2, Site == 'N3-1')
+plot_rich_reads_samlenames_lm(ps.test)
+```
+
+#### vst dataset
+
+```{r}
+ps_vst <- function(ps){
+  diagdds = phyloseq_to_deseq2(ps, ~ Site)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+ps.varstab <- ps_vst(ps.f2)
+```
+
+```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=20, results=FALSE, fig.keep='all'}
+beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", color="Description"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  require(DESeq2)
+  library(ggforce)
+  
+  
+  # beta_NMDS <- function(){
+  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
+  
+  diagdds = phyloseq_to_deseq2(ps, ~ Site)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  if (normtype =="vst")
+    pst <- varianceStabilizingTransformation(diagdds)
+  if (normtype =="log") 
+    pst <- rlogTransformation(diagdds)
+  
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+
+  #beta and ordination
+  
+  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+
+  #plotting
+  p  <-  plot_ordination(ps, ordination.b, type="sample", color="Site", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  return(p)
+}
+
+p.beta <- beta_custom_norm_NMDS_elli(ps.f2)
+p.beta
+```
+
+
+
+```{r,fig.height=10, fig.width=12}
+ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+
+plot_ordination(ps, ordination.b, type="sample", color="Site", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+
+```
+```{r,fig.height=6, fig.width=10}
+map2 <- ps.f2@sam_data %>% 
+  as.data.frame %>% 
+  mutate(
+    Quarry_or_Benchmark = case_when(
+      grepl('Quarry', What) ~ 'Quarry',
+      grepl('Benchmark', What) ~ 'Benchmark'
+    )
+  )
+
+ps.f2@sam_data <- map2 
+
+ps.f2@sam_data
+
+p1 <- plot_ordination(ps.varstab, ordination.b, type="sample", color="Soil", title="Типы почвы", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    theme(legend.position="bottom")
+
+p2 <- plot_ordination(ps.varstab, ordination.b, type="sample", color="Quarry_or_Benchmark", title="Повреждённая почва и контроли", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    theme(legend.position="bottom")
+
+ggarrange(p1, p2, nrow = 1, ncol = 2)
+
+```
+
+
+```{r}
+ps.f2@sam_data
+```
+
+
+### Heatmaps with relative abundance by ampvis2 package
+```{r, message=FALSE,echo=TRUE}
+map3 <- ps.f2@sam_data
+
+ps.f2@sam_data <- map3 %>% 
+  as.data.frame %>% 
+    mutate(
+    Soil = case_when(
+      grepl('meadow_humus', Soil) ~ 'Луговая',
+      grepl('Carbonate_chernozem', Soil) ~ 'Чернозём',
+      grepl('Forest_gray', Soil) ~ 'Лесная',
+    )
+  )
+
+
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+
+amp <- phyloseq_to_amp(ps.f2)
+ps.f2@sam_data$Soil
+```
+
+### Split
+
+```{r}
+ps.1 <- prune_samples(sample_data(ps.f2)$Soil %in% c("Луговая"),ps.f2)
+ps.1  <- prune_taxa(taxa_sums(ps.1) > 0, ps.1)
+
+ps.2 <- prune_samples(sample_data(ps.f2)$Soil %in% c("Чернозём"),ps.f2)
+ps.2  <- prune_taxa(taxa_sums(ps.2) > 0, ps.2)
+
+ps.12 <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Лесная"),ps.f2)
+ps.12  <- prune_taxa(taxa_sums(ps.12) > 0, ps.12)
+
+ps.12@sam_data
+```
+
+```{r}
+library(vegan)
+physeq <- ps.1
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis2(dist ~ Quarry_or_Benchmark, data = metadata)
+
+ad
+
+```
+```{r}
+library(vegan)
+physeq <- ps.2
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis2(dist ~ Quarry_or_Benchmark, data = metadata)
+
+ad
+
+```
+```{r,message=FALSE,echo=TRUE, fig.height=5, fig.width=5.8}
+dist <- phyloseq::distance(ps.12, method = "bray")
+groups <- ps.12@sam_data$Soil
+mod <- vegan::betadisper(dist, groups)
+mod.box <- boxplot(mod)
+TukeyHSD(mod)
+?TukeyHSD.betadisper
+permutest(mod, permutations = 999)
+anova(mod)
+plot(TukeyHSD(mod))
+```
+```{r, message=FALSE,echo=TRUE, fig.height=6, fig.width=9}
+
+amp_heatmap(amp, group_by = "Quarry_or_Benchmark",facet_by = "Soil",tax_show = 10, tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
+ps.f2
+```
+
+```{r,fig.height=8, fig.width=20, results=FALSE}
+
+ps.rand <- rarefy_even_depth(ps.f2)
+
+ordination.b <- ordinate(ps.varstab, "PCoA", "bray")
+ordination.u <- ordinate(ps.rand, "PCoA", "unifrac")
+ordination.w <- ordinate(ps.varstab, "PCoA", "wunifrac")
+  
+  #plotting
+  p1 <-  plot_ordination(ps, ordination.b, type="sample", color="Site", title="Bray-Curtis", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+
+  p2 <-  plot_ordination(ps, ordination.u, type="sample", color="Site", title="UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3)
+  
+  p3 <-  plot_ordination(ps, ordination.w, type="sample", color="Site", title="Weighted UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+  #merge by ggpubr
+  
+  p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "bottom", font.label = list(size = 12, face = "bold", color ="black"))
+  
+p.all
+p.beta <- beta_custom_norm_NMDS_elli(ps.f)
+ps.varstab@sam_data$Soil
+```
+
+```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=18}
+library(ggpubr)
+pdd
+  
+pd1 <- estimate_richness(ps.f2, measures=c("Observed", "InvSimpson", "Shannon"))
+
+pdd  <- pd1 %>% rownames_to_column("Site") %>% mutate(Site = as.factor(Site)) %>% gather(Observed, Shannon, InvSimpson, value = "Index", key = "Type")
+pdd <- cbind(pd1, ps.f2@sam_data)
+pdd
+p1 <- ggplot(data = pdd, aes(y = Observed, x = Quarry_or_Benchmark)) + geom_boxplot() + geom_point(alpha = 0.4) + labs(title = "Observed") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) + facet_grid(~Soil) + theme(axis.title.x = element_blank())
+p2 <- ggplot(data = pdd, aes(y = InvSimpson, x = Quarry_or_Benchmark)) + geom_boxplot() + geom_point(alpha = 0.4)  + labs(title = "InvSimpson") + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+ facet_grid(~Soil)+ theme(axis.title.x = element_blank())
+p3 <- ggplot(data = pdd, aes(y = Shannon, x = Quarry_or_Benchmark)) + geom_boxplot() + geom_point(alpha = 0.4)  + labs(title = "Shannon")+ theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))+ facet_grid(~Soil)+ theme(axis.title.x = element_blank())
+p1
+ggarrange(p1, p2,p3, ncol = 3 ,label.x = 0.105, nrow = 1, common.legend = TRUE) 
+
+
+p_o
+pdd
+
+p.alpha.Cdt.oo <- alpha.custom(ps.f, arrga = "Observed")
+p.alpha.Cdt.is <- alpha.custom(ps.f, arrga = "Shannon")
+p.alpha.Cdt.pd <- alpha.custom(ps.f, arrga = "InvSimpson")
+
+"Observed","Shannon","InvSimpson"
+
+
+p1 <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.sh,p.alpha.Cdt.is, p.alpha.Cdt.pd , ncol = 4 ,label.x = 0.105, nrow = 1, common.legend = TRUE) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+p1
+```
