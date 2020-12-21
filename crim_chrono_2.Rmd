@@ -51,6 +51,8 @@ ps.f <-  subset_samples(ps, sample_names(ps) != 'kimeklis.K.20')
 ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'kimeklis.K.22')
 ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'kimeklis.K.23')
 ps.f <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+
+
 ```
 
 ###некорректный p-value chaking DESeqom на уровне филы

@@ -62,13 +62,13 @@ library(phyloseq)
 map <- read_delim("~/storage/kuz/map.csv", delim = "\t") %>%
   column_to_rownames("ID")
 map <- map %>%  mutate(Description = paste0(Region, "_", Site, "_", Horizon))
+View(map)
 
-map
 ncol(otu_table)
 nrow(taxa)
 
 otus[21:24]
-otus
+
 otus <- read_delim( "~/storage/kuz/otu_table.txt" ,delim = "\t") %>% 
   column_to_rownames("X1")
 
@@ -95,7 +95,8 @@ ps
 map <- map %>%  mutate(Description = paste0(Region, "_", Site, "_", Horizon))
 
 map <- map %>% mutate(Description = as.factor(Description))
-map
+
+
 ```
 
 

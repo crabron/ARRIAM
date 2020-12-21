@@ -279,14 +279,24 @@ pl_gr_chr <- plot_network(ig2.mb_chr, some_ps_chr, type='taxa', color="Class", l
   geom_text_repel(aes(label = Genus), size = 3.5, segment.alpha = 0.6, alpha = 0.6) +
   theme(text = element_text(size = 14))
 
+se.mb.amgut2_chr$refit
+summary(se.mb.amgut2)
+
 ggarrange(pl_gr_chr, pl_gr_pod, ncol = 2, labels = c("Чернозём", "Дерново-подзолистая почва"), common.legend = TRUE, legend = "bottom")
+
+some_ps_chr
+
+```
+
+```{r}
+as.data.frame(t(ps.f.chr@otu_table))
 
 ```
 
 
 
-
 ```{r}
+
 dendrogram_pod <- cluster_edge_betweenness(ig2.mb)
 
 dendrogram_pod$names <- pl_gr_pod$data$Genus
@@ -305,6 +315,8 @@ algorithm(dendrogram_pod)
 dendrogram_chr
 dendrogram_pod
 
+dendrogram_pod$names <- pl_gr_pod$data$value
+dendrogram_chr$names <- pl_gr_chr$data$value
 
 dendrogram_pod$names <- pl_gr_pod$data$Family
 dendrogram_chr$names <- pl_gr_chr$data$Family
@@ -315,8 +327,88 @@ dendrogram_chr$names <- pl_gr_chr$data$Class
 dendrogram_pod$names <- pl_gr_pod$data$Phylum
 dendrogram_chr$names <- pl_gr_chr$data$Phylum
 
+dendrogram_pod$names <- paste(pl_gr_pod$data$Phylum,
+                              pl_gr_pod$data$Class, 
+                              pl_gr_pod$data$Family, 
+                              pl_gr_pod$data$Genus,
+                              pl_gr_pod$data$value
+                              )
+dendrogram_chr$names <- paste(pl_gr_chr$data$Phylum, 
+                              pl_gr_chr$data$Class,
+                              pl_gr_chr$data$Family, 
+                              pl_gr_chr$data$Genus,
+                              pl_gr_chr$data$value
+                              )
+
 groups(dendrogram_pod)
 groups(dendrogram_chr)
 
-?hclust
+groups(dendrogram_pod)
+groups(dendrogram_chr)
+plot(dendrogram_pod, ig2.mb)
+
+gr_pod_values <- set.vertex.attribute(ig2.mb, "name", value=paste(dendrogram_pod$names))
+gr_chr_values <- set.vertex.attribute(ig2.mb_chr, "name", value=paste(dendrogram_chr$names))
+
+gr_pod_family <- set.vertex.attribute(ig2.mb, "name", value=paste(str_sub(dendrogram_pod$names, 10)))
+gr_chr_family <- set.vertex.attribute(ig2.mb_chr, "name", value=paste(str_sub(dendrogram_chr$names, 10)))
+
+dendrogram_pod$names <- paste(dendrogram_pod$family)
+dendrogram_chr$names <- paste(dendrogram_chr$names)
+
+
+
+plot(dendrogram_pod, gr_pod_family)
+gr_pod_family
+dendrogram_pod
+dendrogram_pod$names <- get.vertex.attribute(gr_pod_family, "name")
+dendrogram_chr$names <- get.vertex.attribute(gr_chr_family, "name")
+dendrogram_pod$names
+(as.factor(dendrogram_pod$names))
+
+gr_pod_family$names <- NULL
+gr_pod_null <- set.vertex.attribute(ig2.mb, "name", value=paste(gr_pod_family$names))
+
+par(mfrow=c(1,2))
+plot(dendrogram_pod, gr_pod_family)
+dendrogram_pod
+```
+
+```{r}
+plot(dendrogram_chr, gr_chr_family)
+
+```
+```{r}
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+
+amp.pod <- phyloseq_to_amp(ps.f.pod)
+amp.pod
+amp.heat.pod <- amp_heatmap(amp.pod,tax_show = 150, group_by = "Duration",tax_add  = "Genus",tax_aggregate = "Species", textmap = TRUE)
+amp.heat.pod.df <- amp.heat.pod %>% rownames_to_column("ID")
+filter(amp.heat.pod.df, grepl("seqDnaRna189",ID))
+
+amp.chr <- phyloseq_to_amp(ps.f.chr)
+amp.heat.chr <- amp_heatmap(amp.chr,tax_show = 150, group_by = "Duration",tax_add  = "Genus",tax_aggregate = "Species", textmap = TRUE)
+amp.heat.chr.df <- amp.heat.chr %>% rownames_to_column("ID")
+filter(amp.heat.chr.df, grepl("Salinispira",ID))
+citation("igraph")
 ```

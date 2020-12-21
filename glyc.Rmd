@@ -117,6 +117,10 @@ allOrients <- function(primer) {
 allOrients(FWD)
 ?dada2::rc
 ```
+
+
+
+
 ```{r}
 fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
 fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
@@ -244,6 +248,11 @@ errF <- learnErrors(filtFs, multithread=mult)
 ```
 
 ```{r}
+map
+
+```
+
+```{r}
 library(tidyverse)
 colnames(seqtab.nochim)[1]
 list.files()
@@ -256,9 +265,20 @@ ids_1.10 <- otu_table %>% filter(cellulase.3 > 10 | cellulase.10 > 10) %>% pull(
 
 otu_table %>% filter(cellulase.3 > 5)
 otu_table %>% summarise_all(~sum(. > 100))
-otu_table %>% summarise_all(~sum(. != 0))
+otus_sum <- otu_table %>% summarise_all(~sum(. != 0))
+colnames(otus_sum) <- c("all", paste0("c", 1:10))
+otus_sum <- otus_sum[-1]
+hist(otus_sum)
+paste0("c", 1:10)
 otu_table %>% filter(cellulase.1 > 10)
-packageVersion("rlang")
+gotus_sum <- gather(otus_sum, key = "library", value = "phylotypes")
+gotus_sum$library <- as.factor(gotus_sum$library)
+gotus_sum
+ggplot(data = otu_table) + 
+  geom_boxplot(aes(x = library, y = phylotypes),color="black", fill="white")
+otu_table
+select(map, query, soil)
+
 ```
 
 ```{r}
@@ -271,7 +291,6 @@ library(seqinr)
 rf <- seqinr::read.fasta("rep_seq.fasta", as.string = TRUE)
 rf_1.10 <- rf[ids_1.10]
 seq_vector <- unlist(rf_1.10, use.names = FALSE)
-seq_vector
 write.fasta(rf_1.10, unlist(attributes(rf_1.10), use.names=FALSE), file.out = "rep_seq_1_10.fasta")
 ```
 
@@ -285,7 +304,7 @@ library(ggtree)
 
 tree <- read.tree("align_1_10.treefile")
 tr <- tree
-ggtree(tree, ladderize = F) + geom_tiplab(mapping = aes(text = 1), align=TRUE, linesize=.5, size = 1.9)
+ptr <- ggtree(tree, ladderize = F) + geom_tiplab(mapping = aes(text = 1), align=TRUE, linesize=.5, size = 1.9)
 
 ```
 
@@ -300,33 +319,169 @@ seq_vector[1]
 seqinr::translate("ataccgacgtcaagcgcttcgacggcaatt")
 s2c(seq_vector[1])
 test <- s2c("tctgagcaaataaatcgg")
-c2s(seqinr::translate(s2c(seq_vector[1])))
+c2s(seqinr::translate(s2c(seq_vector[1]), frame = 2))
 
 nice_translate <- function(rep){
   require(seqinr)
   seq <- unlist(rf, use.names = FALSE)
-  
-  
-  
+
 }
-````
+otu_table
+map_3.10_abund <- otu_table %>% 
+  filter(cellulase.3 > 10 | cellulase.10 > 10) %>% 
+  select(ID, cellulase.3, cellulase.10) %>% 
+  mutate(Soil = ifelse(cellulase.3 > 5 & cellulase.10 > 5, "both", ifelse(cellulase.3 > 5, "sod-podzolic", "chernozem")))
+  
+top_3.10 <- otu_table %>% filter(cellulase.3 > 500 | cellulase.10 > 500) %>% pull(ID)
+rf[top_3.10]
+map_3.10_abund
+length(tree$tip.label)
+```
+
+
+```{r}
+library(viridis)
+library(ggtree)
+
+align_3.10_phylip <- read.alignment("align_1_10_align_phylip", format = "phylip")
+
+write.fasta(align_3.10_phylip$seq, file.out = "align_3.10.fasta", names = trimws(align_3.10_phylip$nam))
+
+grp_ne <- list(sod_podzolic = filter(map_3.10_abund, map_3.10_abund$Soil == "sod-podzolic")$ID,
+  chernozem = filter(map_3.10_abund, map_3.10_abund$Soil == "chernozem")$ID,
+  both = filter(map_3.10_abund, map_3.10_abund$Soil == "both")$ID)
+
+tree <- read.tree("align_1_10.treefile")
+ptree_1.10 <- ggtree::msaplot(ggtree(tree), fasta="align_3.10.fasta", color = c("white", viridis(4, option = "C")[1], viridis(4,option = "C")[2], viridis(4,option = "C")[3], viridis(4, option = "C")[4]), width = 1.5) 
+groupOTU(ptree_1.10, grp_ne, "Soil", ) + aes(color=Soil) +
+  theme(legend.position="right", text = element_text(size = 20)) +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+```
+
+
+```{r}
+library(ape)
+al_3.10_ape <- read.FASTA("align_3.10.fasta")
+dnds_ape <- dnds(al_3.10_ape, code = 1, codonstart = 2, quiet = FALSE)
+dnds_ape
+```
+
+```{r}
+
+ggtree(tree, aes(color=dnds_ape), mrsd="2013-01-01", ndigits = 2) +
+    scale_color_continuous(name='dN/dS', limits=c(0, 1.5),
+                           oob=scales::squish, low="green", high="red")
+
+ggtree(tree) + scale_color_continuous(high='#D55E00', low='#0072B2')
+
+
+```
 
 
 
+```{r}
+map <- read_delim("map_mod.tsv", delim = "\t")
+otu_table <- read_delim("otu_table.txt", delim = "\t") %>%  dplyr::rename(ID = X1)
+ids_2.5 <- otu_table %>% filter(cellulase.2 > 5 | cellulase.5 > 5) %>% pull("ID")
+ids_2.5
+rf <- seqinr::read.fasta("rep_seq.fasta", as.string = TRUE)
+rf_2.5 <- rf[ids_2.5]
+seq_vector <- unlist(rf_2.5, use.names = FALSE)
+seq_vector
+write.fasta(rf_2.5, unlist(attributes(rf_2.5), use.names=FALSE), file.out = "rep_seq_2_5.fasta")
+```
 
 
 
+```{r}
+
+library(viridis)
+
+map_2.5_abund <- otu_table %>% 
+  filter(cellulase.2 > 5 | cellulase.5 > 5) %>% 
+  select(ID, cellulase.2, cellulase.5) %>% 
+  mutate(Soil = ifelse(cellulase.2 > 5 & cellulase.5 > 5, "both", ifelse(cellulase.2 > 5, "sod-podzolic", "chernozem")))
+
+align_2.5_phylip <- read.alignment("align_2_5", format = "phylip")
+
+write.fasta(align_2.5_phylip$seq, file.out = "align_2.5.fasta", names = trimws(align_2.5_phylip$nam))
+
+grp_ne <- list(sod_podzolic = filter(map_2.5_abund, map_2.5_abund$Soil == "sod-podzolic")$ID,
+  chernozem = filter(map_2.5_abund, map_2.5_abund$Soil == "chernozem")$ID,
+  both = filter(map_2.5_abund, map_2.5_abund$Soil == "both")$ID)
+grp_ne
+tree <- read.tree("align_2_5.treefile")
+ptree_1.10 <- msaplot(ggtree(tree), fasta="align_2.5.fasta", color = c("white", viridis(4, option = "C")[1], viridis(4,option = "C")[2], viridis(4,option = "C")[3], viridis(4, option = "C")[4]), width = 1.5) 
+tree_2.5 <- groupOTU(ggtree(tree), grp_ne, "Soil", ) + aes(color=Soil) +
+  theme(legend.position="right") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)+ theme(text = element_text(size = 20))
+
+
+```
+```{r}
+map <- read_delim("map_mod.tsv", delim = "\t")
+otu_table <- read_delim("otu_table.txt", delim = "\t") %>%  dplyr::rename(ID = X1)
+ids_1.4 <- otu_table %>% filter(cellulase.1 > 1 | cellulase.4 > 1) %>% pull("ID")
+ids_2.5
+rf <- seqinr::read.fasta("rep_seq.fasta", as.string = TRUE)
+rf_1.4 <- rf[ids_1.4]
+seq_vector <- unlist(rf_1.4, use.names = FALSE)
+seq_vector
+write.fasta(rf_1.4, unlist(attributes(rf_1.4), use.names=FALSE), file.out = "rep_seq_1_4.fasta")
+```
 
 
 
+```{r}
+map_1.4_abund <- otu_table %>% 
+  filter(cellulase.1 > 1 | cellulase.4 > 1) %>% 
+  select(ID, cellulase.1, cellulase.4) %>% 
+  mutate(Soil = ifelse(cellulase.1 > 1 & cellulase.4 > 1, "both", ifelse(cellulase.4 > 1, "sod-podzolic", "chernozem")))
 
 
+grp_ne <- list(sod_podzolic = filter(map_1.4_abund, map_1.4_abund$Soil == "sod-podzolic")$ID,
+  chernozem = filter(map_1.4_abund, map_1.4_abund$Soil == "chernozem")$ID,
+  both = filter(map_1.4_abund, map_1.4_abund$Soil == "both")$ID)
+grp_ne
+tree <- read.tree("align_1_4.treefile")
+ptree_1.10 <- msaplot(ggtree(tree), fasta="align_2.5.fasta", color = c("white", viridis(4, option = "C")[1], viridis(4,option = "C")[2], viridis(4,option = "C")[3], viridis(4, option = "C")[4]), width = 1.5) 
+tree_1.4 <- groupOTU(ggtree(tree), grp_ne, "Soil", ) + aes(color=Soil) +
+  theme(legend.position="right") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8) + theme(text = element_text(size = 20))
+
+library(ggpubr)
+tree_1.4
+ggarrange(tree_1.4, tree_2.5, labels = c("NBJEAOJI_163127", "NBJEAOJI_47814"), common.legend = TRUE, legend = "bottom", font.label = list(size = 11, font = "plain"))
 
 
+```
+
+```{r}
+library(tidyverse)
+map <- read_delim("sum.tsv", delim = "\t")
+map.d <- map %>% mutate(sample = as.factor(sample)) %>% 
+  mutate(sample = plyr::revalue(sample, c("c1" = "c14", "c2" = "c26", "c3" = "c29", "c4" = "c46")))
+colnames(map.d) <- c("community", "description", "percent")
+ggplot(map.d, aes(fill=community, y=percent, x=description)) + 
+  geom_bar(position="dodge", stat="identity") + 
+  scale_fill_viridis_d(option = "plasma") +
+  theme_bw() +
+  theme(axis.text.y=element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 15),
+        axis.title.y=element_blank()) +
+  coord_flip() +
+  guides(fill = guide_legend(reverse = TRUE))
+  
+  
+
+```
 
 
+```{r}
 
-
+map.d 
+```
 
 
 

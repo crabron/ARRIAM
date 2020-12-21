@@ -285,8 +285,11 @@ ps_vst <- function(ps){
   otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
   return(ps.varstab)
 }
-
+library(DESeq2)
 ps.varstab <- ps_vst(ps.f2)
+ps.varstab.f <- ps_vst(ps.f)
+as.data.frame(ps.varstab.f@otu_table)
+
 ```
 
 ```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=20, results=FALSE, fig.keep='all'}

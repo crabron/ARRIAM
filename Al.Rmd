@@ -1268,3 +1268,65 @@ plotDendroAndColors(sampleTree2, traitColors,
 View(met.d)
 
 ```
+
+
+```{r}
+
+plot_rich_reads_samlenames_lm(ps.f.s7307.wIn)
+
+ps.f.s7307.wIn <- prune_samples(sample_data(ps.f.s7307)$Inoculation %in% c("-"), ps.f.s7307)
+ps.f.s7307.wIn <- prune_taxa(taxa_sums(ps.f.s7307.wIn) > 0,ps.f.s7307.wIn)
+
+ps.f.s7307.wIn
+beta_custom_norm_NMDS_elli_uni(ps.f.s7307.wIn)
+
+beta_custom_norm_NMDS_elli_uni <- function(ps, seed = 7888, normtype="vst", color="Repeats"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  require(DESeq2)
+  library(ggforce)
+  
+  
+  # beta_NMDS <- function(){
+  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
+  
+  diagdds = phyloseq_to_deseq2(ps, ~ Description)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  if (normtype =="vst")
+    pst <- varianceStabilizingTransformation(diagdds)
+  if (normtype =="log") 
+    pst <- rlogTransformation(diagdds)
+  
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  
+  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
+  
+  #beta and ordination
+  
+  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+  ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
+  ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
+  
+  #plotting
+  p1 = plot_ordination(ps, ordination.b, type="Description", color="Al", title="NMDS - Bray", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+  p2 = plot_ordination(ps, ordination.u, type="Description", color="Al", title="NMDS - unifrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+  p3 = plot_ordination(ps, ordination.w, type="Description", color="Al", title="NMDS - wunifrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+  #merge by ggpubr
+  
+  p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, font.label = list(size = 12, face = "bold", color ="black"))
+  
+  return(p.all)
+}
+ps.f.s7307.wIn@sam_data
+```
