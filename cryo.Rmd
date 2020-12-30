@@ -1,0 +1,774 @@
+ls | grep Abakumov- | xargs cp -t  ~/storage/cryo/in
+
+```{r}
+setwd("~/storage/cryo")
+path = "in/"
+path_trein_set = "~/storage/somebases/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.fa"
+name_Brief = "nameBrief.txt"
+
+
+mult = TRUE
+mlt = NULL
+require(dada2)
+require(Biostrings)
+require(DECIPHER)
+require(phyloseq)
+require(seqinr)
+require(data.table)
+require(metagMisc)
+require(tibble)
+
+# docker container run --rm -e AMPLICONLENGTH=[amplicon length] -e FORWARDPRIMERLENGTH=[forward primer length] \
+# -e REVERSEPRIMERLENGTH=[reverse primer length] -v /path/to/fastqs:/data/input \
+# -v / figaro
+
+# docker container run --rm -e AMPLICONLENGTH=260 -e FORWARDPRIMERLENGTH=20 \
+# -e REVERSEPRIMERLENGTH=19 -v /home/gladkov/storage/nal/in \
+# -v /home/gladkov/storage/nal figaro
+
+# python3 figaro.py -i /home/gladkov/storage/nal/in -o /home/gladkov/storage/nal -a 260 -f 20 -r 19
+
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+
+plotQualityProfile(fnRs[1:104], aggregate = TRUE)
+length(fnFs)
+```
+```{r}
+
+plotQualityProfile(fnFs[1:104], aggregate = TRUE)
+
+```
+
+
+```{r}
+
+plotQualityProfile(fnRs[1:104], aggregate = TRUE)
+
+```
+
+```{r}
+
+plotQualityProfile(fnRs[75:104], aggregate = FALSE)
+
+```
+
+
+```{r}
+
+plotQualityProfile(fnRs[1:25], aggregate = FALSE)
+
+```
+#out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(250,150), trimLeft=c(19,20), maxN=0, maxEE=c(1,5), rm.phix=TRUE, compress=TRUE, multithread=mult) - see old track file
+
+```{r}
+
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+on.exit()
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+
+out <- filterAndTrim(fnFs, filtFs, truncLen= 280, trimLeft=19, maxN=0, maxEE=3, rm.phix=TRUE, compress=TRUE, multithread=mult)
+errF <- learnErrors(filtFs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult, pool="pseudo")
+seqtab <- makeSequenceTable(dadaFs)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+#dna <- DNAStringSet(briefToSeq)
+#alignment <- AlignSeqs(DNAStringSet(dna), anchor=NA,verbose=FALSE, processors = mlt)
+#writeXStringSet(alignment, file="align.fasta")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "nonchim")
+rownames(track) <- sample.names
+write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+```
+
+```{r}
+taxa
+track
+
+?dada
+naturalsort(sample.names)
+list.files()
+
+
+```
+
+```{r}
+
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
+
+
+filt.otu <- read.csv("otu_table.txt" , header=TRUE, sep="\t")
+colnames(filt.otu)[1] <- "ID"
+
+
+filt.otu <- column_to_rownames(filt.otu, "ID")
+otus <- as.matrix(filt.otu)
+otus <- t(filt.otu)
+
+map_rude <- data.frame("ID" = colnames(filt.otu)) %>%
+  separate(col = "ID", sep = "\\.", into = c("Aba", "Set", "Num"), remove = FALSE) %>%
+  select(-Aba) %>% column_to_rownames("ID")
+
+tree <- read_tree(treefile="tree.nwk")
+
+ps <- phyloseq(otu_table(otus, taxa_are_rows=FALSE), 
+               sample_data(map_rude),
+               tax_table(taxa),
+               phy_tree(tree))
+
+```
+
+
+```{r}
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+ps.f <- delete_mit_chl(ps)
+```
+
+
+
+
+```{r}
+ps_vst <- function(ps){
+  diagdds = phyloseq_to_deseq2(ps, ~ origin)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+library(DESeq2)
+ps.varstab.f <- ps_vst(ps.f)
+ps.f@sam_data$Set
+
+
+
+
+```
+
+
+```{r,fig.height=8, fig.width=9}
+ordination.b <- ordinate(ps.varstab.f, "NMDS", "bray")
+
+plot_ordination(ps, ordination.b, type="sample", color="Set", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Set, label = Set), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+
+```
+
+```{r}
+map_kav <- read_tsv("map_kav.csv")
+
+ps.f.kav <- prune_samples(sample_data(ps.f)$Set %in% c("Kav"), ps.f)
+ps.f.kav <- prune_taxa(taxa_sums(ps.f.kav) > 0, ps.f.kav) 
+
+ps.f.kav <- prune_samples(sample_data(ps.f.kav)$Description != "alluvium", ps.f.kav)
+ps.f.kav <- prune_taxa(taxa_sums(ps.f.kav) > 0, ps.f.kav) 
+
+rows_kav
+rows_kav <- rownames(subset(map_rude, Set == "Kav")) %>%  
+  naturalsort()
+map_kav <- map_kav %>% mutate(rows = rows_kav) %>%
+  mutate(Elevation_m = as.factor(Elevation_m)) %>% 
+  column_to_rownames("rows") 
+map_kav
+sample_data(ps.f.kav) <- map_kav
+map_kav
+
+ps.f.kav@sam_data
+write.table(map_kav, file = "map_kav_2.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+```
+
+
+```{r, fig.height=7, fig.width=11}
+
+
+ps.varstab.kav <- ps_vst(ps.f.kav)
+
+ordination.b <- ordinate(ps.varstab.kav, "NMDS", "bray")
+
+plot_ordination(ps.varstab.kav, ordination.b, type="sample", color="Elevation_m", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm")) +
+    theme(legend.position="bottom") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+```
+```{r}
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+
+amp.kav <- phyloseq_to_amp(ps.f.kav)
+amp.kav
+```
+
+```{r}
+amp_heatmap(amp.kav, group_by = "Description",facet_by = "Elevation_m",tax_show = 10, tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+
+ps.f.kav.ugla <- prune_samples(sample_data(ps.f.kav)$Site %in% c("Gorge_Adyl-Su"), ps.f.kav)
+ps.f.kav.ugla <- prune_taxa(taxa_sums(ps.f.kav.ugla) > 0, ps.f.kav.ugla) 
+
+amp.kav.ugla <- phyloseq_to_amp(ps.f.kav.ugla)
+
+
+amp_heatmap(amp.kav, group_by = "Site",tax_show = 10, tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+
+ps.f.kav.ugla <- prune_samples(sample_data(ps.f.kav)$Description %in% c("Cracked_glacier"), ps.f.kav)
+ps.f.kav.ugla <- prune_taxa(taxa_sums(ps.f.kav.ugla) > 0, ps.f.kav.ugla) 
+
+amp.kav.ugla <- phyloseq_to_amp(ps.f.kav.ugla)
+
+amp_heatmap(amp.kav.ugla,group_by = "Description",tax_show = 30, tax_aggregate = "Class", tax_add = "Genus") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+
+
+```{r}
+
+ps.f.kav.ugla <- prune_samples(sample_data(ps.f.kav)$Description %in% c("morain"), ps.f.kav)
+ps.f.kav.ugla <- prune_taxa(taxa_sums(ps.f.kav.ugla) > 0, ps.f.kav.ugla) 
+
+amp.kav.ugla <- phyloseq_to_amp(ps.f.kav.ugla)
+
+amp_heatmap(amp.kav.ugla,tax_show = 10, tax_aggregate = "Family", tax_add = "Class") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+```
+
+
+```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=6}
+library(ggpubr)
+pdd
+  
+pd1 <- estimate_richness(ps.f.kav, measures=c("Observed", "InvSimpson", "Shannon"))
+
+pdd  <- pd1 %>% rownames_to_column("Site") %>% mutate(Site = as.factor(Site)) %>% gather(Observed, Shannon, InvSimpson, value = "Index", key = "Type")
+pdd <- cbind(pd1, ps.f.kav@sam_data)
+pdd
+p1 <- ggplot(data = pdd, aes(y = Observed, x = Elevation_m)) + geom_boxplot() + geom_point(alpha = 0.4) + labs(title = "Observed") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15),           axis.text.y = element_text(size = 12)) +
+ coord_flip()
+
+p2 <- ggplot(data = pdd, aes(y = InvSimpson, x = Elevation_m)) + geom_boxplot() + geom_point(alpha = 0.4)  + labs(title = "InvSimpson")   + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15),           axis.text.y = element_text(size = 12)) +
+ coord_flip()
+p2
+
+p3 <- ggplot(data = pdd, aes(y = Shannon, x = Elevation_m)) + geom_boxplot() + geom_point(alpha = 0.4)  + labs(title = "Shannon") + theme_bw() + theme(axis.title.y = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15),           axis.text.y = element_text(size = 12)) +
+ coord_flip()
+ggarrange(p1, p2, p3, nrow = 3 ,label.x = 0.105, ncol = 1, common.legend = TRUE) 
+
+p.alpha.Cdt.oo <- alpha.custom(ps.f, arrga = "Observed")
+p.alpha.Cdt.is <- alpha.custom(ps.f, arrga = "Shannon")
+p.alpha.Cdt.pd <- alpha.custom(ps.f, arrga = "InvSimpson")
+
+p1 <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.sh,p.alpha.Cdt.is, p.alpha.Cdt.pd , ncol = 4 ,label.x = 0.105, nrow = 1, common.legend = TRUE) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+p1
+```
+
+```{r}
+map_vulk <- read_tsv("map_vulk_2.csv")
+map_vulk
+ps.f.vulk <- prune_samples(sample_data(ps.f)$Set %in% c("Krio2"), ps.f)
+ps.f.vulk <- prune_taxa(taxa_sums(ps.f.vulk) > 0, ps.f.vulk) 
+
+
+map_vulk
+vulk_names <- rownames(subset(map_rude, Set == "Krio2")) %>%  
+  naturalsort()
+map_vulk <- map_vulk %>% mutate(rows = vulk_names) %>%
+  mutate(Ornitogenic = as.factor(Ornitogenic)) %>% 
+  column_to_rownames("rows") 
+map_vulk
+sample_data(ps.f.vulk) <- map_vulk
+
+
+ps.f.vulk@sam_data
+
+
+```
+
+
+
+```{r}
+
+ps.varstab.vulk <- ps_vst(ps.f.vulk)
+
+ordination.b <- ordinate(ps.varstab.vulk, "PCoA", "bray")
+
+plot_ordination(ps.varstab.vulk, ordination.b, type="sample", color="Ornitogenic", title="PCoA - Bray-Curtis", axes = c(1,2)) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Ornitogenic, label = Ornitogenic), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm")) +
+    theme(legend.position="bottom") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+```
+
+```{r}
+library(vegan)
+physeq <- ps.f.vulk
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis(dist ~ Ornitogenic, data = metadata)
+
+ad
+
+```
+```{r}
+library(vegan)
+physeq <- ps.f.vulk
+dist <- phyloseq::distance(physeq, "unifrac")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis(dist ~ Ornitogenic, data = metadata)
+
+ad
+
+```
+
+```{r}
+library(vegan)
+physeq <- ps.f.vulk
+dist <- phyloseq::distance(physeq, "wunifrac")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis(dist ~ Ornitogenic, data = metadata)
+
+ad
+
+```
+### ССA
+один из вариантов, вне зависимости от трансформации данных лучше не становится
+
+```{r, message=FALSE,echo=FALSE, fig.height=5, fig.width=5}
+
+library(phyloseq)             
+library(vegan)
+library(tidyverse)
+
+ps.merged <- merge_samples(ps.f.vulk, "Repeat")
+physeq <- ps.merged
+physeq <- ps.f.vulk
+ps.merged@sam_data
+
+colnames(metadata)
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+
+otus.ps.vegan <- veganifyOTU(physeq)
+
+metadata <- as(sample_data(physeq), "data.frame")
+# metadata <- map_vulk
+metadata
+metadata <- metadata %>%
+  select(C, C_N,  N, P2O5, K2O, N_NH4, N_NO3, Cu, Pb, Zn, Cd, Ni, Cr)
+metadata
+
+
+metadata <- vegan::decostand(metadata, "hellinger")
+otus.ps.vegan <- vegan::decostand(otus.ps.vegan, "log")
+metadata
+as.data.frame(otus.ps.vegan)
+
+vare.cca <- vegan::cca(otus.ps.vegan ~   K2O + N_NH4 + N_NO3 + Cu + Pb + Zn + Cd + Ni + Cr + C + N + P2O5, data=metadata)
+summary(vare.cca)
+rownames(otus.ps.vegan)
+
+kate.ggcca.sites <- function(vare.cca){
+
+require(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+wa <- as.data.frame(vare.cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa))))
+fdat_amazing <- rbind(biplot, wa)
+
+ 
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) + 
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  return(p)
+}
+
+kate.ggcca.sites(vare.cca)
+
+metadata
+```
+
+```{r}
+anova(vare.cca)
+
+```
+
+```{r}
+vif(vare.cca)
+
+```
+```{r}
+anova(vare.cca, by = "terms")
+
+```
+
+```{r}
+anova(vare.cca, by = "mar")
+
+```
+```{r}
+library(phyloseq)             
+library(vegan)
+
+# функция преобразует otu-table из phyloseq объекта в otu-table необходимый для пакета vegan
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+#вместо ps необходимый объект класса phyloseq
+otus.ps.vegan <- veganifyOTU(physeq)
+metadata <- as(sample_data(physeq), "data.frame")
+#собственно cca(у rda аналогичный синтаксис), указано какие факторы из метаданных учитывать
+map <- as.data.frame(t(map))
+
+vare.cca <- cca(otus.ps.vegan ~ Depth + Lake_dist + N_NO3 + HA + EA + pHh2o + Carbon , data=metadata)
+
+```
+```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=6}
+library(ggpubr)
+pdd
+  
+pd1 <- estimate_richness(ps.f.vulk, measures=c("Observed", "InvSimpson", "Shannon"))
+
+pdd  <- pd1 %>% rownames_to_column("Repeat") %>% mutate(Repeat = as.factor(Repeat)) %>% gather(Observed, Shannon, InvSimpson, value = "Index", key = "Type")
+pdd <- cbind(pd1, ps.f.vulk@sam_data)
+pdd
+p1 <- ggplot(data = pdd, aes(y = Observed, x = Repeat, group = Ornitogenic)) + geom_boxplot()  + geom_point(alpha = 0.4) + labs(title = "Observed") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15),           axis.text.y = element_text(size = 12)) 
+p1
+p2 <- ggplot(data = pdd, aes(y = InvSimpson, x = id)) + geom_boxplot() + geom_point(alpha = 0.4)  + labs(title = "InvSimpson")   + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15),           axis.text.y = element_text(size = 12)) 
+p2
+
+p3 <- ggplot(data = pdd, aes(y = Shannon, x = id)) + geom_boxplot() + geom_point(alpha = 0.4)  + labs(title = "Shannon") + theme_bw() + theme(axis.title.y = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15),           axis.text.y = element_text(size = 12)) +
+ coord_flip()
+ggarrange(p1, p2, p3, nrow = 3 ,label.x = 0.105, ncol = 1, common.legend = TRUE) 
+
+p.alpha.Cdt.oo <- alpha.custom(ps.f, arrga = "Observed")
+p.alpha.Cdt.is <- alpha.custom(ps.f, arrga = "Shannon")
+p.alpha.Cdt.pd <- alpha.custom(ps.f, arrga = "InvSimpson")
+
+p1 <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.sh,p.alpha.Cdt.is, p.alpha.Cdt.pd , ncol = 4 ,label.x = 0.105, nrow = 1, common.legend = TRUE) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+p1
+```
+
+```{r}
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+
+amp.vulk <- phyloseq_to_amp(ps.f.vulk)
+amp.vulk
+```
+```{r, fig.height=6, fig.width=12}
+a.ph <- amp_heatmap(amp_oth, group_by = "Set",tax_show = 10, tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("A") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+a.gen <- amp_heatmap(amp_oth, group_by = "Set",tax_show = 20, tax_aggregate = "Genus", tax_add = "Class") + theme_bw() + theme(text = element_text(size=12), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("B") + scale_y_discrete(position = "right")+
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+p.max <- ggarrange(a.ph , a.gen, ncol = 2 , nrow = 1, font.label = list(size = 12, face = "bold", color ="black"))
+p.max
+
+```
+
+
+```{r}
+
+ps.f.oth <- prune_samples(sample_data(ps.f)$Set != "Kav", ps.f)
+ps.f.oth <- prune_taxa(taxa_sums(ps.f.oth) > 0, ps.f.oth) 
+
+ps.f.oth@sam_data
+```
+```{r}
+ps_vst <- function(ps){
+  diagdds = phyloseq_to_deseq2(ps, ~ Set)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+library(DESeq2)
+ps.varstab.f <- ps_vst(ps.f.oth)
+
+```
+```{r, fig.height=6, fig.width=12}
+
+
+ps.f.oth.vst <- ps_vst(ps.f.oth)
+
+ordination.b <- ordinate(ps.f.oth.vst, "PCoA", "bray")
+
+plot.or <- plot_ordination(ps.f.oth.vst, ordination.b, type="sample", color="Set", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Set, label = Set), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm")) +
+    theme(legend.position="bottom") +
+    scale_colour_viridis_d(option = "plasma", end = 0.8) + 
+    ggtitle("B. PCoA - Bray-Curtis")
+
+amp_oth <- phyloseq_to_amp(ps.f.oth)
+curved <- amp_rarecurve(amp_oth, color_by = "Set" ) + ggtitle("A. rarefaction curve") + theme(legend.position = "bottom") + theme(text = element_text(size = 10))+ 
+  xlab("sequensing depth(reads)") +
+  ylab("number of observed phylotypes") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+p.little <- ggarrange(curved , plot.or, ncol = 2 , nrow = 1, common.legend = TRUE, font.label = list(size = 12, face = "bold", color ="black"))
+p.little
+```
+
+```{r,message=FALSE,echo=TRUE, fig.height=5, fig.width=5.8}
+dist <- phyloseq::distance(ps.f.oth, method = "bray")
+groups <- ps.f.oth@sam_data$Set
+mod <- vegan::betadisper(dist, groups)
+mod.box <- boxplot(mod)
+TukeyHSD(mod)
+?TukeyHSD.betadisper
+permutest(mod, permutations = 999)
+anova(mod)
+plot(TukeyHSD(mod))
+
+
+
+
+
+
+```
+```{r}
+ps.f.cre <- prune_samples(sample_data(ps.f)$Num != 13:28 | sample_data(ps.f)$Set %in% "Kav", ps.f)
+
+ps.f.cre <- prune_taxa(taxa_sums(ps.f.cre) > 0, ps.f.cre) 
+map_rude_2 <- map_rude %>% 
+  rownames_to_column("ID") %>% 
+  mutate(filter = ifelse(Num %in% c(13:28) & Set %in% "Kav", TRUE, FALSE)) %>% 
+  column_to_rownames("ID")
+
+ps.f.cre <- ps.f
+sample_data(ps.f.cre) <- map_rude_2
+sample_data(ps.f.cre) 
+
+ps.f.cre <- prune_samples(sample_data(ps.f.cre)$filter !=  TRUE, ps.f.cre)
+ps.f.cre <- prune_taxa(taxa_sums(ps.f.cre) > 0, ps.f.cre) 
+
+ps.f.cre
+ps.f
+```
+
+
+
+
+
+
+
+```{r}
+  badTaxa <- taxa_names(subset_taxa(ps.f.cre, Phylum=="Cyanobacteria"))
+  ps.f.oth.w.cya <- pop_taxa(ps.f.cre, badTaxa)
+ps.f.oth.w.cya
+ps.f.oth
+
+
+  badTaxa <- taxa_names(subset_taxa(ps.f.cre, Phylum=="Bacteroidota"))
+  ps.f.oth.w.bac <- pop_taxa(ps.f.cre, badTaxa)
+  
+  badTaxa <- taxa_names(subset_taxa(ps.f.cre, Class=="Gammaproteobacteria"))
+  ps.f.oth.gam <- pop_taxa(ps.f.cre, badTaxa)
+  
+  
+ps.f.oth.w.bac
+ps.f.oth
+ ps.f.oth.gam
+```
+
+```{r}
+physeq <- ps.f.oth.w.cya
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis(dist ~ Set, data = metadata)
+ad
+```
+
+
+```{r}
+physeq <- ps.f.cre
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis(dist ~ Set, data = metadata)
+ad
+```
+```{r}
+physeq <- ps.f.oth.w.bac
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis(dist ~ Set, data = metadata)
+ad
+```
+```{r}
+physeq <- ps.f.oth.gam
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis(dist ~ Set, data = metadata)
+ad
+```
+
+```{r, message=FALSE, echo=FALSE}
+des_w_simper <- function(ps, factor){
+  require(DESeq2)
+  require(vegan)
+  require(tibble)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  diagdds = DESeq(diagdds)
+  samp <-sample_data(ps)
+  aggdata <- t(aggregate.data.frame(as.data.frame(as.data.frame(t(diagdds@assays@data$mu))), by=list(samp[[factor]]), median))
+  colnames(aggdata) <- aggdata[1,]
+  aggdata <- aggdata[-1,]
+  res = results(diagdds)
+  res.df <- as.data.frame(res)
+  nice <- cbind(res.df, as.data.frame(ps@tax_table@.Data[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])
+} 
+```
+
+```{r, eval=FALSE}
+des.ay <- des_w_simper(ps.f.cre, "Set")
+des.ay %>% filter(baseMean > 70) %>% arrange(padj)
+
+
+```
+
+
+
+
+
+
+
+
+
