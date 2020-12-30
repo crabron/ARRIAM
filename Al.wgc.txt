@@ -1,0 +1,165 @@
+# WGCNA
+library(vegan)
+library(WGCNA)
+physeq <- ps.f.dec
+sample_names(physeq)
+sample_names(physeq) <- paste0(ps.f.dec@sam_data$Description, "_", stringr::str_split_fixed(sample_names(physeq), "elimov.", 2)[,2])
+sample_names(physeq) %in% c("s8473_In_41", "s8473_In_Al_45")
+physeq <- prune_samples(sample_names(physeq) != c("s8473_In_41", "s8473_In_Al_45"), physeq)
+physeq <- prune_taxa(taxa_sums(physeq) > 10, physeq)
+physeq@sam_data@row.names
+physeq
+physeq.var <- varstab(physeq)
+otus <- veganifyOTU(physeq.var)
+head(otus)
+gsg = goodSamplesGenes(otus.d[-1], verbose = 3)
+gsg
+otus.d <- as.data.frame(otus)
+
+sampleTree = hclust(dist(otus.d), method = "average");
+sizeGrWindow(12,9)
+par(cex = 0.6);
+par(mar = c(0,4,2,0))
+plot(sampleTree, main = "Sample clustering to detect outliers", sub="", xlab="", cex.lab = 1.5, cex.axis = 1.5, cex.main = 2)
+metadata <- physeq@sam_data
+
+OTUSamples = rownames(otus.d)
+MetaSamples = rownames(metadata)
+traitRows = match(OTUSamples, MetaSamples)
+traitRows
+datTraits = traitData[traitRows, -1];
+rownames(datTraits) = traitData[traitRows, 1];
+collectGarbage()
+
+sampleTree2 = hclust(dist(otus.d), method = "average")
+traitColors = numbers2colors(metadata[,5:111], signed = FALSE)
+length(metadata)
+View(data.frame(metadata))
+metadata.little <- metadata
+# small metadata?
+enableWGCNAThreads()
+powers = c(c(1:10), seq(from = 11, to=30, by=1))
+sft = pickSoftThreshold(otus.d, powerVector = powers, verbose = 5, networkType = "signed")
+sizeGrWindow(9, 5)
+par(mfrow = c(1,2));
+cex1 = 0.9;
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n",
+     main = paste("Scale independence"));
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2],
+     labels=powers,cex=cex1,col="red");
+abline(h=0.8,col="red")
+plot(sft$fitIndices[,1], sft$fitIndices[,5],
+     xlab="Soft Threshold (power)",ylab="Mean Connectivity", type="n",
+     main = paste("Mean connectivity"))
+text(sft$fitIndices[,1], sft$fitIndices[,5], labels=powers, cex=cex1,col="red")
+softPower = 17;
+adjacency = adjacency(otus.d, power = softPower, type = "signed");
+TOM = TOMsimilarity(adjacency, TOMType = "signed");
+dissTOM = 1-TOM
+TaxaTree = hclust(as.dist(dissTOM), method = "average");
+
+
+TaxaTree = hclust(as.dist(dissTOM), method = "average");
+  sizeGrWindow(12,9)
+plot(TaxaTree, xlab="", sub="", main = "Taxa clustering on TOM-based dissimilarity",
+     labels = FALSE, hang = 0.04);
+minModuleSize = 50;
+dynamicMods = cutreeDynamic(dendro = TaxaTree, distM = dissTOM,
+                            deepSplit = 2, pamRespectsDendro = FALSE,
+                            minClusterSize = minModuleSize);
+dynamicColors = labels2colors(dynamicMods)
+table(dynamicColors)
+sizeGrWindow(8,6)
+plotDendroAndColors(TaxaTree, dynamicColors, "Dynamic Tree Cut",
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05,
+                    main = "Taxa dendrogram and module colors")
+
+MEList = moduleEigengenes(otus.d, colors = dynamicColors)
+
+MEs = MEList$eigengenes
+MEDiss = 1-cor(MEs)
+METree = hclust(as.dist(MEDiss), method = "average")
+sizeGrWindow(7, 6)
+plot(METree, main = "Clustering of module eigengenes",
+     xlab = "", sub = "")
+MEDissThres = 0.30
+abline(h=MEDissThres, col = "red")
+merge = mergeCloseModules(otus.d, dynamicColors, cutHeight = MEDissThres, verbose = 3)
+mergedColors = merge$colors;
+mergedMEs = merge$newMEs;
+sizeGrWindow(12, 9)
+mergedColors
+plotDendroAndColors(TaxaTree, cbind(dynamicColors, mergedColors),
+                    c("Dynamic Tree Cut", "Merged dynamic"),
+                    dendroLabels = FALSE, hang = 0.03,
+                    addGuide = TRUE, guideHang = 0.05)
+moduleColors = mergedColors
+colorOrder = c("grey", standardColors(50));
+moduleLabels = match(moduleColors, colorOrder)-1;
+MEs = mergedMEs;
+save(MEs, moduleLabels, moduleColors, TaxaTree, file = "Monterey-networkConstruction-stepByStep.RData")
+nTaxa = ncol(otus.d);
+nSamples = nrow(otus.d);
+MEs0 = moduleEigengenes(otus.d, moduleColors)$eigengenes
+MEs = orderMEs(MEs0)
+moduleTraitCor = cor(MEs, metadata, use = "p");
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples);
+sizeGrWindow(10,6)
+
+textMatrix = paste(signif(moduleTraitCor, 2), "\n(",
+                   signif(moduleTraitPvalue, 1), ")", sep = "");
+dim(textMatrix) = dim(moduleTraitCor)
+par(mar = c(6, 8.5, 3, 3));
+
+labeledHeatmap(Matrix = moduleTraitCor,
+               xLabels = names(metadata),
+               yLabels = names(MEs),
+               ySymbols = names(MEs),
+               colorLabels = FALSE,
+               colors = greenWhiteRed(50),
+               textMatrix = textMatrix,
+               setStdMargins = FALSE,
+               cex.text = 0.5,
+               zlim = c(-1,1),
+               main = paste("Module-trait relationships"))
+
+colnames(met.d)
+length(colnames(met.d))
+met.d <- data.frame(metadata)
+met.d.num <- metadata[,6:110]
+met.d.num.scaled <- scale(met.d.num)
+View(met.d.num.scaled)
+# nmds for factors?
+dist.met.scaled <- vegdist(t(met.d.num.scaled), method = "euclidean", na.rm = TRUE)
+dist.met.scaled
+met.nmds <-
+  metaMDS(t(met.d.num.scaled),
+          distance = "euclidean",na.rm = TRUE,
+          k = 3,
+          maxit = 999, 
+          trymax = 500,
+          wascores = TRUE)
+dev.off()
+stressplot(met.nmds)
+plot(met.nmds, "sites")
+orditorp(met.nmds, "sites")
+# scaled - shit
+# unscaled - not work at all
+
+res <- pcoa(dist.met.scaled)
+res$values
+biplot(res)
+
+# pcoa -same shit
+hclust.met <-  hclust(dist.met.scaled)
+plot(hclust.met, main = "metadata scaled euclidian")
+
+# 
+sampleTree2 <-  hclust(dist(met.d.num), method = "average")
+traitColors = numbers2colors(met.d.num, signed = FALSE);
+plotDendroAndColors(sampleTree2, traitColors,
+                    groupLabels = names(met.d.num),
+                    main = "Sample dendrogram and trait heatmap")
+View(met.d)
