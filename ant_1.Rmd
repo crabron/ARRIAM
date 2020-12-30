@@ -1,0 +1,763 @@
+---
+title: "Ant_1"
+author: "GrGladkov"
+date: "19 06 2020"
+output: html_document
+---
+
+ls | grep Abacumov-A- | xargs cp -t  ~/storage/Ant_1/
+ls | grep kimeklis_K_ | xargs cp -t  ~/storage/krim_chrono/in
+-
+
+
+```{r setup, include=FALSE}
+setwd("~/storage/Ant_1/")
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = getwd())
+knitr::opts_knit$set(stop_on_error = 2L)
+```
+
+```{r}
+write.sample.names
+```
+
+# the base pipe
+```{r}
+
+require(dada2)
+require(Biostrings)
+require(DECIPHER)
+require(seqinr)
+require(data.table)
+require(metagMisc)
+require(tibble)
+
+path = "in/"
+setwd("~/storage/Ant_1")
+path_trein_set = "~/storage/scripts_git_done/dada2_pipeline/data/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/scripts_git_done/dada2_pipeline/data/silva_species_assignment_v138.fa"
+name_Brief = "Ant1Brief.txt"
+truncLen = "210,180"
+maxEE = "2,5"
+mult = TRUE
+mlt = NULL
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+on.exit()
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(210,180), trimLeft=c(20,19), maxN=0, maxEE=c(2,5), rm.phix=TRUE, compress=TRUE, multithread=mult)
+errF <- learnErrors(filtFs, multithread=mult)
+errR <- learnErrors(filtRs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult, pool=TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread=mult, pool=TRUE)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+dna.ref <- DNAStringSet(briefToSeq)
+alignment <- AlignSeqs(DNAStringSet(dna.ref), anchor=NA,verbose=FALSE, processors = mlt)
+writeXStringSet(alignment, file="align.fasta")
+
+#assign with DECIPER
+# # with 1000 bootstrap
+dna <- DNAStringSet(getSequences(seqtab.nochim)) # Create a DNAStringSet from the ASVs
+# ids <- IdTaxa(dna, trainingSet, bootstraps = 1000, strand="top", processors=NULL, verbose=FALSE) # use all processors
+# ranks <- c("domain", "phylum", "class", "order", "family", "genus", "species") # ranks of interest
+# # Convert the output object of class "Taxa" to a matrix analogous to the output from assignTaxonomy
+# taxa.dec <- t(sapply(ids, function(x) {
+#   m <- match(ranks, x$rank)
+#   taxa.dec <- x$taxon[m]
+#   taxa.dec[startsWith(taxa.dec, "unclassified_")] <- NA
+#   taxa.dec
+# }))
+# colnames(taxa.dec) <- ranks; rownames(taxa.dec) <- getSequences(seqtab.nochim)
+
+
+#with 100 bootstrap
+
+load(file = "~/storage/scripts_git_done/dada2_pipeline/data/SILVA_SSU_r138_2019.RData")
+ids.100 <- IdTaxa(dna, trainingSet, bootstraps = 100, strand="top", processors=NULL, verbose=FALSE) # use all processors
+ranks <- c("domain", "phylum", "class", "order", "family", "genus", "species") # ranks of interest
+taxa.dec.100 <- t(sapply(ids.100, function(x) {
+  m <- match(ranks, x$rank)
+  taxa.dec.100 <- x$taxon[m]
+  taxa.dec.100[startsWith(taxa.dec.100, "unclassified_")] <- NA
+  taxa.dec.100
+}))
+
+colnames(taxa.dec.100) <- ranks; rownames(taxa.dec.100) <- getSequences(seqtab.nochim)
+
+#assign with assign taxonomy
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult, minBoot = 80)
+
+
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+
+
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa.rdp <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa.rdp)[7] <- "Species"
+colnames(taxa.rdp) <- ranks
+
+# rownames(taxa.dec) <- rownames(taxa.dada2.species)
+# taxa.dec <- cbind2(taxa.dec[,1:6], taxa.dada2.species[,2])
+# colnames(taxa.dec)[7] <- "Species"
+
+rownames(taxa.dec.100) <- rownames(taxa.dada2.species)
+taxa.dec.100 <- cbind2(taxa.dec.100[,1:6], taxa.dada2.species[,2])
+colnames(taxa.dec.100)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+write.table(taxa.rdp, file = "taxa.rdp.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+write.table(taxa.dec.100, file = "taxa.dec.100.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+
+write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+  
+```
+
+#rerun DECIPER assign, save RDS object
+```{r}
+dna <-readDNAStringSet("~/storage/Ant_1/rep_seq.fasta", format="fasta", nrec=-1L, skip=0L, seek.first.rec=FALSE, use.names=TRUE)
+dna
+load(file = "~/storage/scripts_git_done/dada2_pipeline/data/SILVA_SSU_r138_2019.RData")
+ids.100 <- IdTaxa(dna, trainingSet, bootstraps = 100, strand="top", processors=NULL, verbose=FALSE) # use all processors
+
+
+saveRDS(ids.100, file = "~/storage/Ant_1//ids.100.rds")
+```
+
+
+#extract all shit from the flatty foldery files. Read.table go brrrrr
+```{r}
+list.files()
+otutable <- read.csv("otu_table.txt", header=TRUE, sep="\t", row.names = 1)
+taxa.rdp <- read.csv("taxa.rdp.txt", header=TRUE, sep="\t", row.names = 1)
+
+ids.100 <- readRDS("~/storage/Ant_1//ids.100.rds")
+ranks <- c("domain", "phylum", "class", "order", "family", "genus") # ranks of interest
+taxa.dec.100 <- t(sapply(ids.100, function(x) {
+  m <- match(ranks, x$rank)
+  taxa.dec.100 <- x$taxon[m]
+  taxa.dec.100[startsWith(taxa.dec.100, "unclassified_")] <- NA
+  taxa.dec.100
+}))
+colnames(taxa.dec.100) <- ranks
+taxa.dec.100.d <- as.data.frame(taxa.dec.100)
+taxa.dec.100.d[!(is.na(taxa.dec.100.d$genus)),]
+
+```
+ 
+
+#IQTREE
+For ML tree run IQ-TREE with param -
+iqtree -s align.fasta -nt AUTO -ntmax 30
+
+```{r}
+atta = "Seq571"
+as.data.frame(taxa.rdp)[atta,]
+as.data.frame(taxa.dec.100)[atta,]
+as.data.frame(briefToSeq)[atta,]
+
+```
+
+Import align data from IQ-tree
+
+```{r, rows.print = 50}
+
+align_log <- read_table2("~/storage/Ant_1/ant_1_tree/align_log.tsv", col_names = TRUE)
+align_log
+align_log$`Gap/Ambiguity` = substr(align_log$`Gap/Ambiguity`, 1 ,nchar(align_log$`Gap/Ambiguity`)-1)
+align_log$`Gap/Ambiguity` <- as.numeric(align_log$`Gap/Ambiguity`)
+align_log[order(align_log$`Gap/Ambiguity`, decreasing = TRUE),]
+align_log[order(align_log$`p-value`, decreasing = FALSE),]
+
+
+```
+```{r}
+
+first.element <- ids.100[2]
+attributes(ids.100)
+sapply(ids.100, function(x)
+  {print(x)
+  }
+  )
+
+print(first.element)
+plot(ids.100)
+test.list.element <-  ids.100[[5628]]
+test.list.element$taxon[[2]]
+
+```
+
+# align problems
+```{r, rows.print = 27}
+
+ranks <- c("domain", "phylum", "class", "order", "family", "genus", "species") # ranks of interest
+ids.100.conf <- t(sapply(ids.100, function(x) {
+  m <- match(ranks, x$rank)
+  taxa.dec.100 <- x$taxon[m]
+  taxa.dec.100[startsWith(taxa.dec.100, "unclassified_")] <- NA
+  taxa.dec.100
+}))
+m <- match(ranks, test.list.element$rank)
+test.list.element$taxon[m]
+
+
+m <- match(ranks, test.list.element$rank)
+tx <- test.list.element$taxon[m]
+tx[startsWith(tx, "unclassified_")] <- NA
+cx <- test.list.element$confidence[m]
+class(cx)
+rbind(tx, cx)
+
+ids.100.unclassified <- sapply(ids.100, function(x) {
+  ifelse(x$taxon[[2]] == "unclassified_Root", paste0(x$taxon, "_", x$confidence), NA
+  )})
+length(ids.100.unclassified) - sum(is.na(ids.100.unclassified))
+
+ids.100.unclassified
+
+ids.100
+align_log[align_log$`p-value` < 0.05,]
+align.pval.less <- align_log[align_log$`p-value` < 0.05,]
+align.pval.less
+align.pval.less.id <- align.pval.less$ID
+align.pval.less.id
+st.brief.t.df
+
+# one percent of reads not pass postalignment chi-square compositional test (240 representatives)
+sum(st.brief.t.df[align.pval.less.id,])/sum(st.brief.t.df)
+length(align.pval.less.id)
+
+library(tidyverse)
+
+# 1853 unclassified_Root by DECIPHER
+ids.100.unclassified <- sapply(ids.100, function(x) {
+  ifelse(x$taxon[[2]] == "unclassified_Root", paste0(x$taxon, "_", x$confidence), NA
+  )})
+length(ids.100.unclassified) - sum(is.na(ids.100.unclassified))
+
+# 283 root unclassified from 9782
+taxa.rdp.d <- as.data.frame(taxa.rdp)
+sum(is.na(taxa.rdp.d$domain))
+taxa.rdp.shitty <-  rownames(taxa.rdp.d[is.na(taxa.rdp.d$domain),])
+taxa.rdp.shitty
+
+# 117 same for rdp failures and align failures
+match(align.pval.less.id, taxa.rdp.shitty)
+taxa.rdp.shitty
+
+
+# 213 same for the DECIPHER failure and for the align failure
+names(ids.100.unclassified) <- rownames(taxa.rdp.d)
+taxa.dec.shitty <- names(ids.100.unclassified[!is.na(ids.100.unclassified)])
+length(intersect(align.pval.less.id, taxa.dec.shitty))
+big_failure <- intersect(align.pval.less.id, taxa.dec.shitty)
+cbind(taxa.rdp.d[big_failure,], bad_reps)
+
+#list of seqs that assign by DECIPHER but not pass chi-square compositional test by TREE-IO postalignment test
+shitty.but.dec.allright <- align.pval.less.id[!(align.pval.less.id %in% taxa.dec.shitty)]
+
+
+
+cbind(taxa.rdp[shitty.but.dec.allright,], cbind(taxa.dec.100, rep.seqs)[shitty.but.dec.allright,])
+rep.seqs[shitty.but.dec.allright,] 
+
+?BiocGenerics::subset
+
+test.set <- DNAStringSet(briefToSeq)
+names(test.set) <- rownames(taxa.rdp.d)
+rep.seqs <- as.character(test.set, use.names = TRUE)
+as.data.frame(cbind(taxa.dec.100, rep.seqs))
+
+set.1 <- test.set[1]
+
+# reps that smaller then 253 char
+litleone.list <- sapply(test.set, function(x) {
+  if(nchar(x) < 250) {
+      TRUE
+  } else {
+      FALSE
+    }
+  }
+)
+
+litleone.list <- names(litleone.list[litleone.list == TRUE])
+length(litleone.list)
+cbind(taxa.rdp[litleone.list,], cbind(taxa.dec.100, rep.seqs)[litleone.list,])
+length(intersect(align.pval.less.id, litleone.list))
+
+
+```
+
+
+#local blastn xml parse
+```{r}
+
+#library(XML)
+#doc <- xmlParse("~/storage/Ant_1/res.out")
+
+```
+
+### blasted
+
+blastn results:
+Seq6577 - bacteria
+Seq7235 - 
+...
+Seq8791 - Chloroflexi
+
+```{r}
+library(tidyverse)
+cbind(taxa.rdp.d[big_failure,], bad_reps) %>% filter(family != "Mitochondria")
+taxa.rdp.d %>% filter(str_detect(phylum, "^Bact"))
+```
+
+```{r, rows.print = 20}
+data("starvars")
+starwars %>% summarise_at(vars(ends_with("color")), n_distinct)
+vars(
+  ends_with("color"),
+  height:mass
+)
+my_function <- function(x) x * 100
+saveRDS(installed.packages(), file="pkgs.rds")
+R.Version()
+```
+
+```{r}
+rep_seqs_biostr = Biostrings::readDNAStringSet("rep_seq.fasta")
+new_fasta_failure <- rep_seqs_biostr[big_failure]
+Biostrings::writeXStringSet(new_fasta_failure, format = "fasta", file = "shit_all_parem_seq.fasta")
+
+bad_reps <- as.data.frame(new_fasta_failure, row.names = TRUE)
+colnames(bad_reps) <-c("reps")
+```
+
+```{r}
+getwd()
+```
+```{r}
+require(dada2)
+require(Biostrings)
+require(DECIPHER)
+require(phyloseq)
+require(seqinr)
+require(data.table)
+require(metagMisc)
+require(tibble)
+require(ape)
+```
+
+#Panic at the disco
+
+```{r}
+filt.otu <-t(as.data.frame(fread("filtered_table.txt")))
+first <-  filt.otu[1,]
+filt.otu <- filt.otu[-c(1),]
+colnames(filt.otu) <-  first
+class(filt.otu) <- "numeric"
+filt.otu.matrix <- as.matrix(filt.otu)
+#head.col <- scan("head.txt", character(), quote = "")
+#rownames(filt.otu.matrix) <- head.col
+tree <- read_tree(treefile="tree.nwk")
+tree.io <- read_tree(treefile="ant_1_tree/align.fasta.treefile")
+
+mapp <- read.csv("bellinsgausen_mapping.csv" , header=TRUE, sep="\t")
+map <- data.frame(row.names="ID", mapp)
+
+taxa <- read.csv("taxa.rdp.txt" , header=TRUE, sep="\t", row.names = "X")
+taxa <- as.matrix(taxa)
+ps <- phyloseq(otu_table(filt.otu.matrix, taxa_are_rows=FALSE), 
+               sample_data(map), 
+               tax_table(taxa),
+               phy_tree(tree))
+ps
+
+saveRDS(ps, file = "~/storage/Ant_1/ps.rdp.sepp.rds")
+tree.io
+ps.io <- phyloseq(otu_table(filt.otu.matrix, taxa_are_rows=FALSE), 
+               sample_data(map), 
+               tax_table(taxa),
+               phy_tree(tree.io))
+intersect(rownames(as.data.frame(filt.otu.matrix)), rownames(map)) %>% length()
+
+length(rownames(as.data.frame(filt.otu.matrix)))
+
+map
+```
+```{r}
+ rownames(map)
+```
+
+```{r, include=FALSE}
+ps.io.glommed <- phyloseq::tip_glom(ps.io, h = 0.8)
+ps.io
+ps.glommed <- phyloseq::tip_glom(ps, h = 0.8)
+```
+
+## Filter from cl/mt
+
+```{r}
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+ps.f <- delete_mit_chl(ps)
+ps.f <- pop_taxa(ps.f, big_failure)
+ps.f@sam_data
+```
+
+```{r, message=FALSE,echo=TRUE, fig.height=12, fig.width=16}
+library(phyloseq)
+library(ggplot2)
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Description"] <-unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "Abacumov.", 2), function(x) x[[2]]))
+  reads.summary["Repeats"] <- physeq@sam_data$Description
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + geom_point(aes(y=otus, x=log2(reads), color=Repeats),size=3) + geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Repeats, "_", Description), colour = Repeats)) + theme_bw()+
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Repeats, color=Repeats),method=lm, se=FALSE, ymin = 1) + scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+  # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  return(p1)
+}
+
+plot_rich_reads_samlenames_lm(ps.f)
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.11')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.29')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.16')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.17')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.20')
+ps.f <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+plot_rich_reads_samlenames_lm(ps.f)
+
+```
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+library(phyloseq)
+library(ggplot2)
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Description"] <-unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "Abacumov.", 2), function(x) x[[2]]))
+  reads.summary["Repeats"] <- physeq@sam_data$Description
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + geom_point(aes(y=otus, x=log2(reads), color=Repeats),size=3) + geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Repeats), colour = Repeats)) + theme_bw()+
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Repeats, color=Repeats),method=lm, se=FALSE, ymin = 1) + scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+  # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  return(p1)
+}
+
+plot_rich_reads_samlenames_lm(ps.f)
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.11')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.29')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.16')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.17')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'Abacumov.A2.20')
+ps.f <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+plot_rich_reads_samlenames_lm(ps.f)
+
+```
+
+```{r}
+amp
+```
+
+
+```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=20, results=FALSE, fig.keep='all'}
+beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", color="Description"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  require(DESeq2)
+  library(ggforce)
+  
+  
+  # beta_NMDS <- function(){
+  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
+  
+  diagdds = phyloseq_to_deseq2(ps, ~ Description)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  if (normtype =="vst")
+    pst <- varianceStabilizingTransformation(diagdds)
+  if (normtype =="log") 
+    pst <- rlogTransformation(diagdds)
+  
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  
+  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
+  
+  #beta and ordination
+  
+  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+  ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
+  ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
+  
+  #plotting
+  p1 = plot_ordination(ps, ordination.b, type="sample", color="Description", title="NMDS - Bray-Curtis", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  p2 = plot_ordination(ps, ordination.u, type="sample", color="Description", title="NMDS - UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  p3 = plot_ordination(ps, ordination.w, type="sample", color="Description", title="NMDS - Weighted UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) + 
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  #merge by ggpubr
+  
+  p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "none", font.label = list(size = 12, face = "bold", color ="black"))
+  
+  return(p.all)
+}
+
+p.beta <- beta_custom_norm_NMDS_elli(ps.f)
+p.beta
+```
+```{r}
+amp_merged <- phyloseq_to_amp(ps.merged.repeats)
+curved <- amp_rarecurve(amp_merged, color_by = "SampleID" ) + ggtitle("A. rarefaction curve") + theme(legend.position = "bottom") + theme(text = element_text(size = 10))
+curved
+```
+
+```{r}
+#1.26.0
+
+BiocManager::install("DESeq2")
+BiocManager::version()
+install.packages("XML", repos = "http://www.omegahat.net/R")
+install.packages("remotes")
+remotes::install_github("MadsAlbertsen/ampvis2")
+```
+
+
+```{r, message=FALSE,echo=TRUE}
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+amp <- phyloseq_to_amp(ps.f)
+amp
+```
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+
+amp_heatmap(amp, group_by = "Site",tax_show = 15, tax_aggregate = "Phylum", order_x_by = c("Bel20", "Bel27", "Bel16", "Bel4", "Bel22", "Bel26","Bel23","Bel21", "Bel25")) + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
+
+```
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+amp_heatmap(amp, group_by = "Site",tax_show = 15, tax_aggregate = "Family") + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
+```
+
+```{r, message=FALSE,echo=TRUE}
+library(phyloseq)             
+library(vegan)
+
+ps.f.w20 <- prune_samples(sample_data(ps.f)$Site != c("Bel20"), ps.f)
+ps.f.w20 <- prune_taxa(taxa_sums(ps.f.w20) > 0, ps.f.w20)
+
+
+ps.merged <- merge_samples(ps.f.w20, "Site")
+physeq <- ps.merged
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+
+otus.ps.vegan <- veganifyOTU(physeq)
+
+metadata <- as(sample_data(physeq), "data.frame")
+
+vare.cca <- vegan::cca(otus.ps.vegan ~  pHH2O + pHKCl + Basal_respration_mg.g.hour + C. + N. + C.N, data=metadata)
+
+
+kate.ggcca.sites <- function(vare.cca){
+
+require(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+wa <- as.data.frame(vare.cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa))))
+fdat_amazing <- rbind(biplot, wa)
+
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) + 
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  return(p)
+}
+kate.ggcca.sites(vare.cca)
+metadata
+```
+
+```{r,message=FALSE,echo=TRUE, rows.print = 112}
+
+permanova.forloop.noNestedPlant <- function(factor){
+  require(vegan)
+  require(phyloseq)
+  dist <- phyloseq::distance(physeq, "bray")
+  metadata <- as(sample_data(physeq@sam_data), "data.frame")
+  ad <- adonis2(as.formula(paste( "dist ~ ", factor)), data = metadata)
+  ad <- cbind2(ad[1,][3], ad[1,][5])
+  return(ad)
+}
+
+physeq <- ps.f
+col.physeq <- colnames(physeq@sam_data)
+col.physeq <- col.physeq[ col.physeq != "Description"]
+
+permanova.forloop.pos.noPlant <- purrr::possibly(permanova.forloop.noNestedPlant, otherwise = NA)
+out <- purrr::map(col.physeq, permanova.forloop.pos.noPlant)
+out.d.noPlant <- do.call("rbind", out)
+out.d.noPlant[order(out.d.noPlant$R2, decreasing = TRUE),]
+
+```
+
+```{r}
+anova(vare.cca)
+```
+
+```{r}
+anova(vare.cca, by="terms")
+```
+
+```{r}
+ps.merged <- merge_samples(ps.f, "")
+amp_merged <- phyloseq_to_amp(ps.merged)
+curved <- amp_rarecurve(amp_merged, color_by = "SampleID" ) + ggtitle("rarefaction curve") + theme(legend.position = "bottom") + theme(text = element_text(size = 10))
+curved
+amp_merged$metadata
+```
+
+```{r, message=FALSE,echo=TRUE,fig.height=9, fig.width=20}
+library(ggpubr)
+alpha.custom <- function(ps.f, arrga = "PD"){
+  require(picante)
+  pd <- pd(ps.f@otu_table@.Data, ps.f@phy_tree)
+  
+  pd1 <- estimate_richness(ps.f, measures=c("Observed", "InvSimpson", "Shannon"))
+  pd <- cbind(pd,ps.f@sam_data, pd1 )
+  
+  bmi <- levels(as.factor(pd$Description))
+  bmi.pairs <- combn(seq_along(bmi), 2, simplify = FALSE, FUN = function(i)bmi[i])
+  p1 <- ggviolin(pd, x = "Site", y = arrga,
+                 add = "boxplot", fill = "Site") + stat_compare_means(comparisons = bmi.pairs, method = "wilcox.test") +
+    scale_x_discrete(limits = c("Bel20", "Bel27", "Bel16", "Bel4", "Bel22", "Bel26","Bel23","Bel21", "Bel25")) + theme(axis.title.x = element_blank(), legend.title = element_blank())
+  return(p1)
+}
+
+p.alpha.Cdt.oo <- alpha.custom(ps.f, arrga = "PD")
+p.alpha.Cdt.is <- alpha.custom(ps.f, arrga = "Shannon")
+
+
+
+p.alpha <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.is, ncol = 2 ,label.x = 0.105, nrow = 1, common.legend = TRUE)
+p.alpha
+ 
+
+require(picante)
+  pd <- pd(ps.f@otu_table@.Data, ps.f@phy_tree)
+  
+  pd1 <- estimate_richness(ps.f, measures=c("Observed", "InvSimpson", "Shannon"))
+  pd <- cbind(pd,ps.f@sam_data, pd1 )
+  
+  pd1
+  bmi <- levels(as.factor(pd$Site))
+  bmi.pairs <- combn(seq_along(bmi), 2, simplify = FALSE, FUN = function(i)bmi[i])
+  bmi.pairs
+  pd <- pd[c("PD", "Site")]
+  ggviolin(pd, x = "Site", y = "PD",
+                 add = "boxplot", fill = "Site") + stat_compare_means(comparisons = bmi.pairs, method = "wilcox.test") +
+    scale_x_discrete(limits = c("Bel20", "Bel27", "Bel16", "Bel4", "Bel22", "Bel26","Bel23","Bel21", "Bel25")) + theme(axis.title.x = element_blank(), legend.title = element_blank())
+pd
+```

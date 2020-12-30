@@ -1,0 +1,414 @@
+---
+title: "glyc_straw"
+author: "GrGladkov"
+date: "07 12 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/straw_dna_rna/16s/")
+list.files()
+```
+
+
+
+```{r}
+setwd("~/storage/straw_dna_rna/16s/")
+list.files()
+map <- read_tsv("metadata_dna_rna.txt")
+map <- column_to_rownames(map, "ID")
+map
+
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
+taxa
+
+filt.otu <- read.csv("dna_rna_count_table.txt" , header=TRUE, sep="\t")
+filt.otu
+colnames(filt.otu)[1] <- "ID"
+filt.otu <- column_to_rownames(filt.otu, "ID")
+filt.otu
+
+# class(filt.otu) <- "numeric"
+
+filt.otu <- as.matrix(filt.otu)
+filt.otu <- t(filt.otu)
+rownames(filt.otu)
+rownames(map)
+
+tree <- read_tree(treefile="tree.nwk")
+
+ps <- phyloseq(otu_table(filt.otu, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa),
+               phy_tree(tree))
+
+
+ps
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+ps.f <- delete_mit_chl(ps)
+ps.f@sam_data
+```
+#### split
+
+```{r}
+ps.f <- prune_samples(sample_data(ps.f)$Pool %in% c("dna"), ps.f)
+ps.f<- prune_taxa(taxa_sums(ps.f) > 0, ps.f) 
+
+
+ps.f.chr <- prune_samples(sample_data(ps.f)$Soil %in% c("chernozem"), ps.f)
+ps.f.chr<- prune_taxa(taxa_sums(ps.f.chr) > 0, ps.f.chr) 
+ps.f.pod <- prune_samples(sample_data(ps.f)$Soil %in% c("podzolic"), ps.f)
+ps.f.pod <- prune_taxa(taxa_sums(ps.f.pod) > 0,ps.f.pod)
+
+ps.f.chr.5 <- prune_samples(sample_data(ps.f.chr)$Duration %in% c("5"), ps.f.chr)
+ps.f.chr.5 <- prune_taxa(taxa_sums(ps.f.chr.5) > 0, ps.f.chr.5) 
+
+ps.f.pod.5 <- prune_samples(sample_data(ps.f.pod)$Duration %in% c("5"), ps.f.pod)
+ps.f.pod.5 <- prune_taxa(taxa_sums(ps.f.pod.5) > 0, ps.f.pod.5) 
+
+ps.f.chr.10 <- prune_samples(sample_data(ps.f.chr)$Duration %in% c("10"), ps.f.chr)
+ps.f.chr.10 <- prune_taxa(taxa_sums(ps.f.chr.10) > 0, ps.f.chr.10) 
+
+ps.f.pod.10 <- prune_samples(sample_data(ps.f.pod)$Duration %in% c("10"), ps.f.pod)
+ps.f.pod.10 <- prune_taxa(taxa_sums(ps.f.pod.10) > 0, ps.f.pod.10) 
+
+ps.f.chr.14 <- prune_samples(sample_data(ps.f.chr)$Duration %in% c("14"), ps.f.chr)
+ps.f.chr.14 <- prune_taxa(taxa_sums(ps.f.chr.14) > 0, ps.f.chr.14) 
+
+ps.f.pod.14 <- prune_samples(sample_data(ps.f.pod)$Duration %in% c("14"), ps.f.pod)
+ps.f.pod.14 <- prune_taxa(taxa_sums(ps.f.pod.14) > 0, ps.f.pod.14) 
+
+
+ps.f.chr.1 <- prune_samples(sample_data(ps.f.chr)$Duration %in% c("1"), ps.f.chr)
+ps.f.chr.1 <- prune_taxa(taxa_sums(ps.f.chr.1) > 0, ps.f.chr.1) 
+
+ps.f.pod.1 <- prune_samples(sample_data(ps.f.pod)$Duration %in% c("1"), ps.f.pod)
+ps.f.pod.1 <- prune_taxa(taxa_sums(ps.f.pod.1) > 0, ps.f.pod.1) 
+
+```
+
+
+
+```{r}
+library(vegan)
+
+some_ps <-ps.f
+otus.dt <- as.data.frame(some_ps@otu_table@.Data)
+mean(vegdist(otus.dt, method = "jaccard"))
+
+seq.list <- seq(0, 500, by=10)
+jac.steppo <- function(some_number){
+  some_ps <- prune_taxa(taxa_sums(some_ps) > some_number , some_ps) 
+  otus.dt <- as.data.frame(some_ps@otu_table@.Data)
+  jacco.mean <- mean(vegdist(otus.dt, method = "jaccard"))
+  return(jacco.mean)
+}
+
+some_ps <- ps.f.pod
+seq.list <- seq(0, 600, by=1)
+jacco.list <- sapply(seq.list, jac.steppo)
+plot(jacco.list)
+```
+
+```{r}
+require(viridis)
+library(qgraph)
+library(scales)
+library(igraph)
+
+make_iogr <- function(some_ps){
+  some_ps <- prune_taxa(taxa_sums(some_ps) > 300 , some_ps) 
+  otus.pr.Cd <- some_ps@otu_table@.Data
+  otus.pr.Cd
+  tax.Cd.d <- as.data.frame(some_ps@tax_table@.Data)
+  lev <- levels(tax.Cd.d$Phylum)
+  len_lev <- length(lev)
+  pal <- hue_pal(h = c(0, 360), c = 100, l = 30, direction = -1)(len_lev)
+  vertex.col <- pal[tax.Cd.d$Phylum]
+  vertex.col <- viridis(len_lev, option = "C")
+  qp_chr <- qgraph(cor(otus.pr.Cd, method = "spearman"), 
+                   layout = "spring", 
+                   minimum = "sig", 
+                   palette = "ggplot2",
+                   alpha=0.05, 
+                   groups = tax.Cd.d$Class, 
+                   sampleSize = 16, 
+                   graph = "cor", 
+                   threshold = "BH", 
+                   vsize = 3, 
+                   label.cex = 1.8
+                 )
+}
+qp_chr <- make_iogr(ps.f.chr)
+qp_pod <- make_iogr(ps.f.pod)
+plot(qp_chr)
+plot(qp_pod)
+qp_chr_ig <- igraph::as.igraph(qp_chr)
+qp_pod_ig <- igraph::as.igraph(qp_pod)
+igraph::compare(qp_chr_ig, qp_pod_ig, method = "rand")
+summary(qp_chr_ig)
+dendrogram <- cluster_edge_betweenness(qp_pod_ig)
+dendrogram
+?compare
+qp_pod_ig[1]
+```
+
+
+```{r}
+make_iogr_wzeros <- function(some_ps){
+  some_ps <- prune_taxa(taxa_sums(some_ps) > 300 , some_ps) 
+  otus.pr.Cd <- some_ps@otu_table@.Data
+  otus.pr.Cd
+  tax.Cd.d <- as.data.frame(some_ps@tax_table@.Data)
+  lev <- levels(tax.Cd.d$Phylum)
+  len_lev <- length(lev)
+  pal <- hue_pal(h = c(0, 360), c = 100, l = 30, direction = -1)(len_lev)
+  vertex.col <- pal[tax.Cd.d$Phylum]
+  vertex.col <- viridis(len_lev, option = "C")
+  qp_chr <- qgraph(cor(otus.pr.Cd, method = "spearman"), 
+                   layout = "spring", 
+                   minimum = "sig", 
+                   palette = "ggplot2",
+                   groups = tax.Cd.d$Class, 
+                   sampleSize = 16, 
+                   graph = "cor", 
+                   vsize = 3, 
+                   label.cex = 1.8
+                 )
+}
+qp_chr_wz <- make_iogr_wzeros(ps.f.chr)
+qp_pod_wz <- make_iogr_wzeros(ps.f.pod)
+
+qp_chr_ig_wz <- igraph::as.igraph(qp_chr_wz)
+qp_pod_ig_wz <- igraph::as.igraph(qp_pod_wz)
+
+dendrogram <- cluster_edge_betweenness(qp_chr_ig_wz)
+```
+
+
+```{r}
+some_ps <- prune_taxa(taxa_sums(ps.f.chr) > 300 , ps.f.chr) 
+otu_table <- some_ps@otu_table@.Data
+otu_table
+library(Hmisc)
+library(Matrix)
+otu.cor <- rcorr(otu_table, type="spearman")
+otu.pval <- forceSymmetric(otu.cor$P)
+p.yes <- otu.pval<0.05
+p.yes
+r.val = otu.cor$r
+p.yes.r <- r.val*p.yes
+p.yes.r
+p.yes.r <- abs(p.yes.r)>0.75
+p.yes.rr <- p.yes.r*r.val
+tax <- as.data.frame(some_ps@tax_table@.Data)
+adjm <- as.matrix(p.yes.rr)
+colnames(adjm) <- as.vector(tax$Family)
+rownames(adjm) <- as.vector(tax$Family)
+net.grph=graph.adjacency(adjm,mode="undirected",weighted=TRUE,diag=FALSE)
+edgew<-E(net.grph)$weight
+bad.vs<-V(net.grph)[degree(net.grph) == 0] 
+net.grph <-delete.vertices(net.grph, bad.vs)
+
+plot(net.grph, vertex.size = 25, edge.width = 5, vertex.color = "coral")
+```
+
+```{r}
+library(SpiecEasi)
+
+some_ps <- prune_taxa(taxa_sums(ps.f.chr) > 300 , ps.f.chr) 
+se.mb.amgut2 <- spiec.easi(some_ps, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params= list(ncores = 20), 
+                           icov.select.params=list(rep.num=50))
+se.mb.amgut2$refit
+taxa_names(some_ps)
+?adj2igraph
+ig2.mb <- adj2igraph(se.mb.amgut2$refit[[1]], 
+                     vertex.attr=list(name=taxa_names(some_ps)))
+
+plot_network(ig2.mb, some_ps, type='taxa', color="Class") + geom_label(label.size = 0.25)
+?plot_network
+```
+
+```{r, fig.height=8, fig.width=13}
+library(ggrepel)
+library(ggpubr)
+
+
+
+some_ps <- prune_taxa(taxa_sums(ps.f.pod) > 300 , ps.f.pod) 
+se.mb.amgut2 <- spiec.easi(some_ps, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params= list(ncores = 20), 
+                           icov.select.params=list(rep.num=50))
+se.mb.amgut2$refit
+taxa_names(some_ps)
+?adj2igraph
+ig2.mb <- adj2igraph(se.mb.amgut2$refit[[1]], 
+                     vertex.attr=list(name=taxa_names(some_ps)))
+
+pl_gr_pod <- plot_network(ig2.mb, some_ps, type='taxa', color="Class", label = NULL, line_weight = 1.2) + 
+  geom_text_repel(aes(label = Genus), size = 3.5, segment.alpha = 0.6, alpha = 0.6) +
+  theme(text = element_text(size = 14))
+
+some_ps_chr <- prune_taxa(taxa_sums(ps.f.chr) > 300 , ps.f.chr) 
+se.mb.amgut2_chr <- spiec.easi(some_ps_chr, method='mb', lambda.min.ratio=1e-2,
+                           nlambda=20, pulsar.params= list(ncores = 20), 
+                           icov.select.params=list(rep.num=50))
+
+ig2.mb_chr <- adj2igraph(se.mb.amgut2_chr$refit[[1]], 
+                     vertex.attr=list(name=taxa_names(some_ps_chr)))
+
+pl_gr_chr <- plot_network(ig2.mb_chr, some_ps_chr, type='taxa', color="Class", label = NULL, line_weight = 1.2) + 
+  geom_text_repel(aes(label = Genus), size = 3.5, segment.alpha = 0.6, alpha = 0.6) +
+  theme(text = element_text(size = 14))
+
+se.mb.amgut2_chr$refit
+summary(se.mb.amgut2)
+
+ggarrange(pl_gr_chr, pl_gr_pod, ncol = 2, labels = c("Чернозём", "Дерново-подзолистая почва"), common.legend = TRUE, legend = "bottom")
+
+some_ps_chr
+
+```
+
+```{r}
+as.data.frame(t(ps.f.chr@otu_table))
+
+```
+
+
+
+```{r}
+
+dendrogram_pod <- cluster_edge_betweenness(ig2.mb)
+
+dendrogram_pod$names <- pl_gr_pod$data$Genus
+dendPlot(dendrogram_pod, mode="hclust", labels = dendrogram_pod$names)
+dendrogram_pod$names
+
+
+dendrogram_chr <- cluster_edge_betweenness(ig2.mb_chr)
+dendPlot(dendrogram_chr, mode="hclust")
+?dendPlot
+
+modularity(dendrogram_chr)
+modularity(dendrogram_pod)
+algorithm(dendrogram_chr)
+algorithm(dendrogram_pod)
+dendrogram_chr
+dendrogram_pod
+
+dendrogram_pod$names <- pl_gr_pod$data$value
+dendrogram_chr$names <- pl_gr_chr$data$value
+
+dendrogram_pod$names <- pl_gr_pod$data$Family
+dendrogram_chr$names <- pl_gr_chr$data$Family
+
+dendrogram_pod$names <- pl_gr_pod$data$Class
+dendrogram_chr$names <- pl_gr_chr$data$Class
+
+dendrogram_pod$names <- pl_gr_pod$data$Phylum
+dendrogram_chr$names <- pl_gr_chr$data$Phylum
+
+dendrogram_pod$names <- paste(pl_gr_pod$data$Phylum,
+                              pl_gr_pod$data$Class, 
+                              pl_gr_pod$data$Family, 
+                              pl_gr_pod$data$Genus,
+                              pl_gr_pod$data$value
+                              )
+dendrogram_chr$names <- paste(pl_gr_chr$data$Phylum, 
+                              pl_gr_chr$data$Class,
+                              pl_gr_chr$data$Family, 
+                              pl_gr_chr$data$Genus,
+                              pl_gr_chr$data$value
+                              )
+
+groups(dendrogram_pod)
+groups(dendrogram_chr)
+
+groups(dendrogram_pod)
+groups(dendrogram_chr)
+plot(dendrogram_pod, ig2.mb)
+
+gr_pod_values <- set.vertex.attribute(ig2.mb, "name", value=paste(dendrogram_pod$names))
+gr_chr_values <- set.vertex.attribute(ig2.mb_chr, "name", value=paste(dendrogram_chr$names))
+
+gr_pod_family <- set.vertex.attribute(ig2.mb, "name", value=paste(str_sub(dendrogram_pod$names, 10)))
+gr_chr_family <- set.vertex.attribute(ig2.mb_chr, "name", value=paste(str_sub(dendrogram_chr$names, 10)))
+
+dendrogram_pod$names <- paste(dendrogram_pod$family)
+dendrogram_chr$names <- paste(dendrogram_chr$names)
+
+
+
+plot(dendrogram_pod, gr_pod_family)
+gr_pod_family
+dendrogram_pod
+dendrogram_pod$names <- get.vertex.attribute(gr_pod_family, "name")
+dendrogram_chr$names <- get.vertex.attribute(gr_chr_family, "name")
+dendrogram_pod$names
+(as.factor(dendrogram_pod$names))
+
+gr_pod_family$names <- NULL
+gr_pod_null <- set.vertex.attribute(ig2.mb, "name", value=paste(gr_pod_family$names))
+
+par(mfrow=c(1,2))
+plot(dendrogram_pod, gr_pod_family)
+dendrogram_pod
+```
+
+```{r}
+plot(dendrogram_chr, gr_chr_family)
+
+```
+```{r}
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+
+amp.pod <- phyloseq_to_amp(ps.f.pod)
+amp.pod
+amp.heat.pod <- amp_heatmap(amp.pod,tax_show = 150, group_by = "Duration",tax_add  = "Genus",tax_aggregate = "Species", textmap = TRUE)
+amp.heat.pod.df <- amp.heat.pod %>% rownames_to_column("ID")
+filter(amp.heat.pod.df, grepl("seqDnaRna189",ID))
+
+amp.chr <- phyloseq_to_amp(ps.f.chr)
+amp.heat.chr <- amp_heatmap(amp.chr,tax_show = 150, group_by = "Duration",tax_add  = "Genus",tax_aggregate = "Species", textmap = TRUE)
+amp.heat.chr.df <- amp.heat.chr %>% rownames_to_column("ID")
+filter(amp.heat.chr.df, grepl("Salinispira",ID))
+citation("igraph")
+```

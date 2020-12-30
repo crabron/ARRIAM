@@ -1,0 +1,63 @@
+#офигительный cca-biplot со стрелочками в ggplot2
+
+library(vegan)
+library(ggplot)
+library(dplyr)
+library(ggrepel)
+
+fdat <- fortify(vare.cca)
+p.species <- ggplot(fdat %>% filter(Score %in% c("species","biplot"))) + geom_point(mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=3) 
+p.species + geom_segment(data = fdat %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.2, color = "red",arrow = arrow(angle = 3))  + theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50")))
+
+
+
+
+little.cca <- cca(otus.ps.vegan ~ pHh2o , data=metadata)
+mod <- ordistep(little.cca, scope = formula(vare.norm.cca))
+
+
+
+
+#как построить cca в vegan из phyloseq
+
+library(phyloseq)             
+library(vegan)
+
+# функция преобразует otu-table из phyloseq объекта в otu-table необходимый для пакета vegan
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+#вместо ps необходимый объект класса phyloseq
+otus.ps.vegan <- veganifyOTU(ps)
+metadata <- as(sample_data(ps), "data.frame")
+#собственно cca(у rda аналогичный синтаксис), указано какие факторы из метаданных учитывать
+vare.cca <- cca(otus.ps.vegan ~ C_N + Carbon + Ntot + P2O5 + K2O + N_NH4 + N_NO3 + pHh2o + pHCaCl2 + EA + HA , data=metadata)
+
+
+#рисовалка биплота базовыми средствами
+plot(vare.cca,choices=c(1,2),display=c("wa","bp"),type="points",xlim=c(-4,4),scaling=2)
+points(vare.cca,disp="sites",pch=21,col="red",bg="red",cex=1)
+text(vare.cca,"sites",pos=4,axis.bp=TRUE)
+
+#ссылочки
+
+https://www.researchgate.net/post/Can_any_one_help_me_with_the_interpretation_of_CCA_plot
+http://cc.oulu.fi/~jarioksa/opetus/metodi/mmmbeam2.pdf
+
+
+fdat <- fortify(vare.cca)
+p.sites <- ggplot(fdat %>% filter(Score %in% c("sites","biplot"))) + geom_point(mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=3) 
+p.sites + geom_segment(data = fdat %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.2, color = "red",arrow = arrow(angle = 3))  + theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50")))
+
+
+
+vare.cca
+anova(vare.cca, by="terms")
+anova(vare.cca, by="mar")
+little.cca <- cca(otu ~pHh2o , data=mapping)
+mod <- ordistep(little.cca, scope = formula(vare.cca))
+mod$anova
+vif.ccaa$vare.cca

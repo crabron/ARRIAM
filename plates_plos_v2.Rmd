@@ -5,7 +5,11 @@ date: "16 03 2020"
 output: html_document
 ---
 ```{r set-options, echo=FALSE, cache=FALSE}
+<<<<<<< HEAD
 options(repr.plot.width=15, repr.plot.height=10)
+=======
+options(width = 1800)
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```
 
 ```{r setup, include=FALSE}
@@ -18,7 +22,11 @@ knitr::opts_knit$set(stop_on_error = 2L)
 
 ##Import old shady "plates" workspace, narrow down new_plates datacet, export into rds object, clear all shit and recreate workspace. Quite enought shamefull relocate working directory. 
 
+<<<<<<< HEAD
 ```{r message=FALSE, eval=FALSE}
+=======
+```{r, message=FALSE, eval = FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 load("~/storage/r-base_files/plates.RData")
 library(phyloseq)
 ps.f.plos <- prune_samples(sample_data(ps.f)$Medium %in% c("getchinson", "soil dna"),ps.f)
@@ -26,8 +34,14 @@ ps.f.plos <- prune_taxa(taxa_sums(ps.f.plos) > 0, ps.f.plos)
 saveRDS(ps.f.plos, file = "~/storage/plates/ps.f.plos.rds")
 ```
 
+<<<<<<< HEAD
 ```{r message=FALSE, rows.print=40}
 setwd("~/storage/notebooks/")
+=======
+##Import data, some renaming
+```{r, message=FALSE, rows.print = 40}
+setwd("~/storage/plates/plos/")
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 library(phyloseq)
 ps <- readRDS(file = "~/storage/plates/ps.f.plos.rds") 
 metadata <- ps@sam_data
@@ -42,7 +56,12 @@ ps@sam_data
 ```
 
 ###Richness/depth correlation. Outliers - sample 81.
+<<<<<<< HEAD
 ```{r message=FALSE, echo=TRUE, fig.height=8, fig.width=12}
+=======
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 library(phyloseq)
 library(ggplot2)
 plot_rich_reads_samlenames_lm <- function(ps.f){
@@ -64,15 +83,31 @@ plot_rich_reads_samlenames_lm <- function(ps.f){
 plot_rich_reads_samlenames_lm(ps)
 
 ```
+<<<<<<< HEAD
 ###[Ricness/depth without outliers]
 ```{r message=FALSE, echo=TRUE, fig.height=10, fig.width=14}
+=======
+
+###[Ricness/depth without outliers]
+
+```{r, message=FALSE,echo=TRUE, fig.height=10, fig.width=14}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 # ps.f <- prune_samples(sample_data(ps)$Number != c("81"), ps)
 # 
 # plot_rich_reads_samlenames_lm(ps.f)
 ps.f <- ps
+<<<<<<< HEAD
 ```
 
 ###Amp
+=======
+ps.f@sam_data
+```
+
+###Some ampwis2 visualisations
+####Create ampwis2 object
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 phyloseq_to_amp <- function(ps){
     require(ampvis2)
@@ -98,6 +133,7 @@ amp
 
 ```
 
+<<<<<<< HEAD
 ###Amp rarefaction
 ```{r message=FALSE, fig.height=6, fig.width=10, results=FALSE, fig.keep="all"}
 library(ampvis2)
@@ -107,6 +143,20 @@ curved
 amp_merged
 p.differ
 p.differ.1 <- p.differ + ggtitle("B. dependence of the abundance of the core phylotypes") +  xlab("median bulk soil vst count") + ylab("median Hutchinson culturome vst count") + theme(text = element_text(size = 10))
+=======
+####Amp rarefaction
+
+```{r, message=FALSE,fig.height=6, fig.width=10, results=FALSE, fig.keep='all'}
+library(ampvis2)
+amp_merged <- phyloseq_to_amp(ps.merged.repeats)
+curved <- amp_rarecurve(amp_merged, color_by = "SampleID" ) + ggtitle("A. rarefaction curve") + theme(legend.position = "bottom", ) + theme(text = element_text(size = 10))+ 
+  xlab("sequensing depth(reads)") +
+  ylab("number of observed phylotypes")
+curved
+amp_merged
+p.differ
+p.differ.1 <- p.differ+  theme(legend.position = "bottom")+ ggtitle("B. dependence of the abundance of the core phylotypes") +  xlab("median bulk soil vst count") + ylab("median Hutchinson culturome vst count") + theme(text = element_text(size = 10))
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 p.little <- ggarrange(curved, p.differ.1 , ncol = 2 , nrow = 1, common.legend = FALSE, font.label = list(size = 12, face = "bold", color ="black"))
 p.little
 p.differ.1
@@ -136,23 +186,40 @@ p1 <-  plot_ordination(ps, ordination.b, type="sample", color="Repeats", title="
   geom_mark_ellipse(aes(group = Repeats, label = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm")) + theme(legend.position = "none")
 p1
 ```
+<<<<<<< HEAD
 ####heat
 ```{r message=FALSE, echo=TRUE, fig.height=8, fig.width=12}
+=======
+
+###heatmaps
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 amp_heatmap(amp.medium, group_by = "Soil",tax_show = 20, tax_aggregate = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
 amp_heatmap(amp.soil, group_by = "Soil",tax_show = 100, tax_aggregate = "Species",tax_add = c("Phylum","Family","Class","Genus"), textmap = TRUE) 
 
 ```
 
 
+<<<<<<< HEAD
 ```{r message=FALSE, echo=TRUE, fig.height=8, fig.width=12}
+=======
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 amp_heatmap(amp.soil, group_by = "Soil",tax_show = 20, tax_aggregate = "Phylum", textmap = TRUE) + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
 amp_heatmap(amp.soil, group_by = "Soil",tax_show = 20, tax_aggregate = "Phylum", textmap = TRUE)
 ps.medium@tax_table
 ```
 
+<<<<<<< HEAD
 ###Split dataset by medium/soil
 
 ```{r message=FALSE}
+=======
+##Split dataset by medium/soil
+
+```{r, message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 ps.f <- ps
 
@@ -171,6 +238,7 @@ ps.cz  <- prune_taxa(taxa_sums(ps.cz ) > 0, ps.cz )
 ps.sp <- prune_samples(sample_data(ps.f)$Soil %in% c("sod-podzolic"), ps.f)
 ps.sp <- prune_taxa(taxa_sums(ps.sp) > 0, ps.sp)
 
+<<<<<<< HEAD
 ps.sp
 
 
@@ -181,6 +249,241 @@ ps.sp
 
 ```{r message=FALSE, fig.height=6, fig.width=15, results=FALSE, fig.keep="all"}
 beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", color="Repeats"){
+=======
+ps.cz.soil <- prune_samples(sample_data(ps.cz)$Medium_or_Soil %in% c("soil"), ps.cz)
+ps.cz.soil  <- prune_taxa(taxa_sums(ps.cz.soil ) > 0, ps.cz.soil )
+
+ps.cz.medium <- prune_samples(sample_data(ps.cz)$Medium_or_Soil %in% c("medium"), ps.cz)
+ps.cz.medium  <- prune_taxa(taxa_sums(ps.cz.medium ) > 0, ps.cz.medium )
+
+ps.sp.soil <- prune_samples(sample_data(ps.sp)$Medium_or_Soil %in% c("soil"), ps.sp)
+ps.sp.soil <- prune_taxa(taxa_sums(ps.sp.soil) > 0, ps.sp.soil)
+
+ps.sp.medium <- prune_samples(sample_data(ps.sp)$Medium_or_Soil %in% c("medium"), ps.sp)
+ps.sp.medium <- prune_taxa(taxa_sums(ps.sp.medium) > 0, ps.sp.medium)
+
+ps.sp.soil
+ps.sp.medium
+ps.cz.soil
+ps.cz.medium
+
+library(tidyverse)
+
+inner_join(tax.d.sp.soil, tax.d.sp.medium)
+
+tax.t.sp.soil <- as_tibble(ps.sp.soil@tax_table@.Data, rownames = "ID")
+tax.t.sp.medium <- as_tibble(ps.sp.medium@tax_table@.Data, rownames = "ID")
+tax.core.sp <- inner_join(tax.t.sp.medium, tax.t.sp.soil)
+
+tax.t.cz.soil <- as_tibble(ps.cz.soil@tax_table@.Data, rownames = "ID")
+tax.t.cz.medium <- as_tibble(ps.cz.medium@tax_table@.Data, rownames = "ID")
+tax.core.cz <- inner_join(tax.t.cz.medium, tax.t.cz.soil)
+
+tax.core <-  inner_join(tax.core.sp, tax.core.cz)
+
+tax.core.sp
+
+tax.core.cz 
+
+```
+###amp venn
+
+```{r}
+amp.cz.soil <- phyloseq_to_amp(ps.cz.soil)
+amp.ps.medium <- phyloseq_to_amp(ps.cz.medium)
+amp.sp.soil <- phyloseq_to_amp(ps.sp.soil)
+amp.sp.medium <- phyloseq_to_amp(ps.sp.medium)
+amp.cz <- phyloseq_to_amp(ps.cz)
+amp.sp <- phyloseq_to_amp(ps.sp)
+amp.cz.soil
+amp.ps.medium
+
+amp.sp.soil
+amp.sp.medium
+
+
+amp_venn(amp.cz, group_by = "Medium_or_Soil", cut_a = 0.0000000000001, cut_f = 0.00000000000001)
+amp_venn(amp.sp, group_by = "Medium_or_Soil", cut_a = 0.0000000000001, cut_f = 0.00000000000001)
+
+```
+
+
+##Varstab normalisation. little plot. New one.
+```{r, fig.height=6, fig.width=8,  rows.print = 50}
+
+physeq <- ps.f
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+otus <- veganifyOTU(physeq)
+meta <- as(sample_data(physeq), "data.frame")
+otus <- t(otus)
+deseq_counts <- DESeqDataSetFromMatrix(otus, colData = meta, design = ~ Description) 
+deseq_counts_vst <- varianceStabilizingTransformation(deseq_counts)
+vst_trans_count_tab <- assay(deseq_counts_vst)
+vst_trans_count_tab %>% as.data.frame() %>% arrange(desc(kimeklis.K.10))
+# vst_trans_count_tab[vst_trans_count_tab < 0.0] <- 0.0
+
+aggregation_by_meta <- function(vst_trans_count_tab, meta, aggfunc){
+  d.vst <- as.data.frame(vst_trans_count_tab)
+  t.d.vst <- t(d.vst)
+  vst.median <- aggregate(t.d.vst, by=list(meta$Description), aggfunc) 
+  vst.median <- as.data.frame(vst.median)
+  vst.median$Group.1 <- as.character(vst.median$Group.1) 
+  vst.median <-  column_to_rownames(vst.median, "Group.1")
+  vst.median <- as.data.frame(t(vst.median))
+  return(vst.median)
+}
+
+vst.median <- aggregation_by_meta(vst_trans_count_tab, meta, median) 
+vst.mean <- aggregation_by_meta(vst_trans_count_tab, meta, mean)
+```
+
+###mean vs medians
+
+```{r}
+vst.median %>% 
+  filter_all((any_vars(. > -6))) %>% 
+  nrow() %>% 
+  paste0("median >-6 ==> ", .)
+vst.median %>% 
+  filter_all((any_vars(. > 0))) %>% 
+  nrow() %>% 
+  paste0("median >-6 ==> ", .)
+vst.mean %>% 
+  filter_all((any_vars(. > -6))) %>% 
+  nrow() %>% 
+  paste0("mean > 0 ==> ", .)
+vst.mean %>% 
+  filter_all((any_vars(. > 0))) %>% 
+  nrow() %>% 
+  paste0("mean > 0 ==> ", .)
+```
+
+###long format for ggplotting 
+
+```{r}
+     
+vst.median.melted <- vst.median %>%
+  filter((gSP > -6 & bsSP > -6) | (gCZ > -6 & bsCZ > -6)) %>%
+  rownames_to_column("ID") %>% 
+  reshape2::melt(variable.name = "Soil" ,value.name = "culturome" , measure.vars = c("gSP", "gCZ")) %>%
+  reshape2::melt(variable.name = "Soil2" ,value.name = "bulk_soil" , measure.vars = c("bsSP", "bsCZ")) %>% 
+  filter((Soil == "gSP" & Soil2 == "bsSP")|(Soil == "gCZ" & Soil2 == "bsCZ")) %>% 
+  select(-c(Soil2)) %>%
+  mutate(Soil = revalue(Soil, c("gSP" = "SP", "gCZ" = "CZ"))) %>% 
+  filter(culturome > -6 & bulk_soil > -6)
+vst.median.melted
+p.differ <- ggplot(data=vst.median.melted) + geom_point(aes(x = bulk_soil, y = culturome, color = Soil))  + theme_bw()
+p.differ
+
+d.core.sp <- vst.median.melted [vst.median.melted$Soil == "SP",]
+d.core.cz <- vst.median.melted [vst.median.melted$Soil == "CZ",]
+d.core.sp 
+d.core.cz
+fisher.core(d.core.sp)
+fisher.core(d.core.cz)
+```
+
+
+###Fisher test. Function
+
+```{r}
+d.lm <- d.core.sp
+fisher.core <- function(d.lm){
+  lm1 <- lm(culturome ~ d.lm[,4], data=d.lm)
+  SS1 <- sum(lm1$residuals^2)
+  lm0 <- lm(culturome~1, data=d.lm)
+  SS0 <- sum(lm0$residuals^2)
+  dof <- sum(d.lm$culturome>0)-1
+  pval <- pf(SS1/SS0,dof,dof)
+  return(paste0("pval by Fisher test for " , d.lm$Soil[1] , " - ", pval))
+}
+```
+
+###fisher test. execution.
+
+```{r}
+    
+vst.mean.melted <- vst.mean %>%
+  filter((gSP > -6 & bsSP > -6) | (gCZ > -6 & bsCZ > -6)) %>%
+  rownames_to_column("ID") %>% 
+  reshape2::melt(variable.name = "Soil" ,value.name = "culturome" , measure.vars = c("gSP", "gCZ")) %>%
+  reshape2::melt(variable.name = "Soil2" ,value.name = "bulk_soil" , measure.vars = c("bsSP", "bsCZ")) %>% 
+  filter((Soil == "gSP" & Soil2 == "bsSP")|(Soil == "gCZ" & Soil2 == "bsCZ")) %>% 
+  select(-c(Soil2)) %>%
+  mutate(Soil = revalue(Soil, c("gSP" = "SP", "gCZ" = "CZ"))) %>% 
+  filter(culturome > -6 & bulk_soil > -6)
+vst.mean.melted
+p.differ <- ggplot(data=vst.mean.melted) + geom_point(aes(x = bulk_soil, y = culturome, color = Soil))  + theme_bw()
+p.differ
+
+d.core.sp <- vst.mean.melted[vst.mean.melted$Soil == "SP",]
+d.core.cz <- vst.mean.melted[vst.mean.melted$Soil == "CZ",]
+d.core.sp 
+d.core.cz
+fisher.core(d.core.sp)
+fisher.core(d.core.cz)
+```
+
+
+### density plots
+
+```{r}
+hist.median <- hist(vst.median, breaks = 0.5)
+library(ggpubr)
+ggarrange(ggdensity(vst.median$gSP), ggdensity(vst.median$gCZ),ggdensity(vst.median$bsSP),ggdensity(vst.median$bsCZ), ncol = 2, nrow = 2, labels = c("gSP","gCZ","bsSP","bsCZ"))
+vst.mean.melted
+ggplot(data = vst.mean.melted.all, aes(x = bulk_soil)) + geom_density(aes(color = Soil))
+vst.mean.melted.all <- vst.mean %>%
+  rownames_to_column("ID") %>% 
+  reshape2::melt(variable.name = "Soil" ,value.name = "culturome" , measure.vars = c("gSP", "gCZ")) %>%
+  reshape2::melt(variable.name = "Soil2" ,value.name = "bulk_soil" , measure.vars = c("bsSP", "bsCZ")) %>% 
+  filter((Soil == "gSP" & Soil2 == "bsSP")|(Soil == "gCZ" & Soil2 == "bsCZ")) %>% 
+  select(-c(Soil2)) %>%
+  mutate(Soil = revalue(Soil, c("gSP" = "SP", "gCZ" = "CZ"))) 
+```
+
+```{r}
+hist.mean <- hist(vst.mean, breaks = 0.5)
+ggarrange(ggdensity(vst.mean$gSP), ggdensity(vst.mean$gCZ),ggdensity(vst.mean$bsSP),ggdensity(vst.mean$bsCZ), ncol = 2, nrow = 2, labels = c("gSP","gCZ","bsSP","bsCZ"))
+
+
+```
+
+###add taxonomy
+
+```{r}
+library(tidyverse)
+taxa.all.tidy <- as.data.frame(ps.f@tax_table@.Data) %>% rownames_to_column("ID")
+core.res.with.taxa <- left_join(vst.mean.melted, taxa.all.tidy, by ="ID")
+core.res.with.taxa %>%  filter(Soil == "SP") %>%  group_by(Class) %>% dplyr::summarise(new = n_distinct(ID)) %>% arrange(desc(new))
+core.res.with.taxa %>%  filter(Soil == "CZ")  %>% mutate(abund_mean = culturome + bulk_soil) %>% arrange(desc(abund_mean))  %>%  filter(Phylum == "Firmicutes") 
+
+
+
+vst.median %>% rownames_to_column("ID") %>% 
+  filter((gSP > -6 & bsSP < -6) | (gCZ > -6 & bsCZ < -6)) -> cult
+
+core.cult.res.with.taxa <- left_join(core, taxa.all.tidy, by ="ID")
+
+core.cult.res.with.taxa 
+```
+
+### group by taxanomy
+```{r}
+library(tidyverse)
+core.res.with.taxa %>%  filter(Soil == "CZ") %>%  group_by(Class) %>% dplyr::summarise(new = n_distinct(ID)) %>% arrange(desc(new))
+```
+
+##Beta-diversity plots
+
+```{r, message=FALSE,fig.height=5, fig.width=15, results=FALSE, fig.keep='all', dev ="tiff"}
+beta_custom_norm_PCoA_elli <- function(ps, seed = 7888, normtype="vst", color="Repeats"){
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
   require(phyloseq)
   require(ggplot2)
   require(ggpubr)
@@ -191,6 +494,7 @@ beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", color="R
   # beta_NMDS <- function(){
   #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
   
+<<<<<<< HEAD
   diagdds = phyloseq_to_deseq2(ps, ~ Repeats)                  
   diagdds = estimateSizeFactors(diagdds, type="poscounts")
   diagdds = estimateDispersions(diagdds, fitType = "local") 
@@ -203,14 +507,37 @@ beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", color="R
   pst.dimmed[pst.dimmed < 0.0] <- 0.0
   ps.varstab <- ps
   otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+=======
+  physeq <- ps
+  veganifyOTU <- function(physeq){
+    require(phyloseq)
+    if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+    return(as(otu_table(physeq), "matrix"))
+  }
+  otus <- veganifyOTU(physeq)
+  otus <- t(otus)
+  deseq_counts_by_compl <- DESeqDataSetFromMatrix(otus, colData = meta, design = ~ Plant/Al + Plant/Inoculation) 
+  deseq_counts_vst_by_compl <- varianceStabilizingTransformation(deseq_counts_by_compl)
+  vst_trans_count_tab_complr <- assay(deseq_counts_vst_by_compl)
+  otu.table.compl <- otu_table(vst_trans_count_tab_complr, taxa_are_rows = TRUE)
+  ps.vst.compl <- physeq
+  otu.table.compl[otu.table.compl < 0.0] <- 0.0
+  otu_table(ps.vst.compl) <- otu.table.compl
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
   
   ps.rand <- rarefy_even_depth(ps, rngseed = seed)
   
   #beta and ordination
   
+<<<<<<< HEAD
   ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
   ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
   ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
+=======
+  ordination.b <- ordinate(ps.varstab, "PCoA", "bray")
+  ordination.u <- ordinate(ps.rand, "PCoA", "unifrac")
+  ordination.w <- ordinate(ps.varstab, "PCoA", "wunifrac")
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
   
   #plotting
   p1 = plot_ordination(ps, ordination.b, type="sample", color="Description", title="A. Bray-Curtis", 
@@ -229,6 +556,7 @@ beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", color="R
   
   p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "none", font.label = list(size = 12, face = "bold", color ="black"))
   
+<<<<<<< HEAD
   return(p.all)
 }
 
@@ -239,6 +567,22 @@ beta.plot
 ###Basic DESeq2 by Soil variable
 
 ```{r message=FALSE}
+=======
+  return(list(p.all, ordination.b, ordination.u, ordination.w))
+  }
+
+beta_plot_function_result <- beta_custom_norm_PCoA_elli(ps.f)
+beta_plot_function_result[[1]]
+plot_scree(beta_plot_function_result[[3]])
+ord_b <- beta_plot_function_result[2]
+
+
+```
+
+##Basic DESeq2 by Soil variable
+
+```{r,message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 des_w_simper <- function(ps, factor){
   require(DESeq2)
   require(vegan)
@@ -262,9 +606,15 @@ des.soil <- des_w_simper(ps.soil, "Soil")
 des.medium <- des_w_simper(ps.medium, "Soil") 
 ```
 
+<<<<<<< HEAD
 ####filtration ASVs in the DESeq2 result tables by abundanse and change confidence level
 
 ```{r message=FALSE}
+=======
+###filtration ASVs in the DESeq2 result tables by abundanse and change confidence level
+
+```{r,message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 filter.des <- function(des, alpha=0.1, baseMean = 15){
   des <- des[(des$padj < alpha), ]
   des <- des[(des$baseMean > baseMean),]
@@ -286,9 +636,15 @@ paste0("length des.medium  after filtation with param: alpha - ", alpha.soil, ",
 
 ```
 
+<<<<<<< HEAD
 ####Tree for soil soil-specific taxa
 
 ```{r echo=FALSE, message=FALSE, results=FALSE, fig.height=12, fig.width=16}
+=======
+###Tree for soil soil-specific taxa
+
+```{r,  message=FALSE, results=FALSE, echo=FALSE, fig.height=12, fig.width=16}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 list.both <- c(rownames(des.soil.filt), rownames(des.medium.filt)) 
 ps.changed <- prune_taxa(list.both, ps.f)
 phyloseq <- ps.changed
@@ -310,9 +666,16 @@ tree$tip.label <- taxa.pruned$taxa3
 p <- ggtree(tree, ladderize = F) + geom_tiplab(mapping = aes(), align=TRUE, linesize=.5) + xlim(NA, 4)
 
 ```
+<<<<<<< HEAD
 ####Add log2FoldChange for tree. Red - prevalence in CZ, blue - in SP.
 
 ```{r message=FALSE, echo=TRUE, fig.height=12, fig.width=14}
+=======
+
+###Add log2FoldChange for tree. Red - prevalence in CZ, blue - in SP.
+
+```{r,  message=FALSE,echo=TRUE, fig.height=12, fig.width=14}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 t.medium <-   as_tibble(des.medium, rownames = "id") %>% 
   filter(id %in% phyloseq@phy_tree$tip.label) %>% 
   select(id, log2FoldChange) %>%  
@@ -335,7 +698,11 @@ p2 <- p2 + labs(fill = "L2FC CZ/SP")
 p2
 ```
 
+<<<<<<< HEAD
 ```{r message=FALSE, echo=TRUE, fig.height=14, fig.width=14}
+=======
+```{r, message=FALSE,echo=TRUE, fig.height=14, fig.width=14}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 otus.medium.rel <- t(apply(otu_table(ps.medium), 1, function(x) x / sum(x)))
 otus.soil.rel <- t(apply(otu_table(ps.soil), 1, function(x) x / sum(x)))
 # for medium
@@ -391,8 +758,16 @@ gt$widths[7] <-  0.5*gt$widths[7] # in this case it was colmun 7 - reduce the wi
 plot(gt) # plot with grid draw
 p3
 ```
+<<<<<<< HEAD
 ####diff tables
 ```{r rows.print=100}
+=======
+
+###diff tables
+####realy have no any idea what code below are doing
+
+```{r, rows.print = 100}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 des.soil.filt.more <- filter.des(des.soil, alpha = 0.05, baseMean = 0)
 des.soil.filt.more[des.soil.filt.more$log2FoldChange >= 0,]
 des.soil.filt.more[des.soil.filt.more$log2FoldChange <= 0,]
@@ -412,6 +787,10 @@ dessa.med <- des.medium[des.medium$Genus == "Acidobacteria",]
 dessa.med[order(dessa.med$baseMean, decreasing = TRUE),]
 ```
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 ps.soil.merged <- prune_samples(sample_data(ps.merged.repeats)$Medium_or_Soil %in% c("2"), ps.merged.repeats)
 ps.soil.merged.changed <- prune_taxa(rownames(des.soil.filt.more) , ps.soil.merged)
@@ -426,10 +805,16 @@ mpd.medium.merged.changed <- ses.mpd(ps.medium.merged.changed@otu_table@.Data, c
 mpd.medium.merged.changed
 rbind(mpd.soil.merged.changed, mpd.medium.merged.changed)
 
+<<<<<<< HEAD
 
 
 ```
 
+=======
+```
+
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 
 ps.soil.changed <- prune_taxa(rownames(des.soil.filt.more) , ps.soil)
@@ -444,17 +829,24 @@ unifrac.medium.changed <- unifrac(ps.medium.changed@otu_table@.Data, ps.medium@p
 metadata.medium.changed <- as(sample_data(ps.medium.changed@sam_data), "data.frame")
 adonis2(unifrac.medium.changed ~ Soil , data = metadata.medium.changed)
 
+<<<<<<< HEAD
 
 
 
 
+=======
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```
 
 
 ### DESeq between medium. Splitting factor - soil type. 
 ####Improve on des function - add a required factor(with as.formula function)
 
+<<<<<<< HEAD
 ```{r message=FALSE}
+=======
+```{r, message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 des.sp <- des_w_simper(ps.sp, "Medium")
 des.cz <- des_w_simper(ps.cz, "Medium")
@@ -465,7 +857,11 @@ des.cz
 ###[Fun for tree des visualisation]
 ####[Optimise tree size. Plot for Mean/padj selection] 
 
+<<<<<<< HEAD
 ```{r eval=FALSE}
+=======
+```{r, eval=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
  filter.des <- function(des, alpha=0.1, baseMean = 15){
   des <- des[(des$padj < alpha), ]
   des <- des[(des$baseMean > baseMean),]
@@ -494,10 +890,17 @@ plot(jacco.list)
 ```
 
 
+<<<<<<< HEAD
 ###UNIFRAC visualisation with step by step tree glom. Rarefaction.
 ####[draft]
 
 ```{r fig.height=8, fig.width=12, eval=FALSE}
+=======
+##UNIFRAC visualisation with step by step tree glom. Rarefaction.
+###[draft]
+
+```{r, fig.height=8, fig.width=12, eval=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 ps.soil@sam_data
 seq.list <- seq(0, 0.8, by=0.005)
@@ -607,8 +1010,16 @@ scores(mod, display = c("sites", "centroids"), choices = c(1,2))
 
 ?adonis2
 ```
+<<<<<<< HEAD
 ####clean copy
 ```{r fig.height=8, fig.width=12}
+=======
+
+
+###clean copy
+
+```{r, fig.height=8, fig.width=12}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 library(future)
 library(future.apply)
@@ -697,12 +1108,24 @@ future:::ClusterRegistry("stop")
 ```
 
 #### Plot chunk
+<<<<<<< HEAD
 ```{r fig.height=8, fig.width=12}
 glom_1_p
 
 ```
 ####How many ASVs with different height of tree cut
 ```{r fig.height=8, fig.width=12, eval=FALSE}
+=======
+
+```{r, , fig.height=8, fig.width=12}
+glom_1_p
+
+```
+
+####How many ASVs with different height of tree cut
+
+```{r, , fig.height=8, fig.width=12, eval=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 taxa_counter_after_glom <- function(physeq, from, till){
   
@@ -720,6 +1143,10 @@ ps.soil.4 <-  tip_glom(ps.soil, h=0.4)
 ####Function from Jacob @cramjaco Cram, G-d bless you
 add sublevel taxonomy with garbaged tip-glommed ASVs
 https://github.com/joey711/phyloseq/issues/866
+<<<<<<< HEAD
+=======
+-- Jacob, maybe your a nice person, but your code sucks
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 ```{r}
 
@@ -789,7 +1216,12 @@ ps.soil.amazing.glommed@tax_table
 ```
 
 ####The uncore otus by tree reduction
+<<<<<<< HEAD
 ```{r message=FALSE}
+=======
+
+```{r, message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 # tip_glom_saveid <- function(physeq, h = 0.2, hcfun = agnes, ...){
 hcfun = agnes
 h=0.2
@@ -956,13 +1388,21 @@ summary(lm.df.soil)
 summary(lm.df.medium)
 anova(lm.df.soil)
 anova(lm.df.medium)
+<<<<<<< HEAD
 ````
+=======
+```
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 
 ```{r}
 p.lm
 ```
+<<<<<<< HEAD
 cit
+=======
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 ```{r}
 library(lsmeans)
@@ -1030,7 +1470,11 @@ main_diff(0.4, ps.medium)
 
 
 ####Same shit, diff core math algorithm
+<<<<<<< HEAD
 ```{r message=FALSE}
+=======
+```{r, message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 
 library(future)
 library(future.apply)
@@ -1122,7 +1566,12 @@ future:::ClusterRegistry("stop")
 ```
 
 ####Tree with the  massive taxa glomming
+<<<<<<< HEAD
 ```{r fig.height=8, fig.width=16}
+=======
+
+```{r, fig.height=8, fig.width=16}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 library(ggtree)
 library(tidyverse)
 
@@ -1174,7 +1623,11 @@ gridExtra::grid.arrange(p1, p2, ncol=2)
 
 ### REWRITE! Not have enough time.  
 
+<<<<<<< HEAD
 ```{r message=FALSE}
+=======
+```{r, message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 alpha.sp <- 0.05
 baseMean.sp <- 80
 des.sp.filt <- filter.des(des.sp, alpha = alpha.sp, baseMean = baseMean.sp)
@@ -1198,7 +1651,11 @@ otus.soil.rel[,"Seq1"]
 
 ####REWRITE! Collect all eggs in one bucket
 
+<<<<<<< HEAD
 ```{r echo=FALSE, message=FALSE, results=FALSE, fig.height=18, fig.width=16, eval=TRUE}
+=======
+```{r,  message=FALSE, results=FALSE, echo=FALSE, fig.height=18, fig.width=16, eval=TRUE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 list.both <- c(rownames(des.sp.filt), rownames(des.cz.filt)) 
 ps.changed <- prune_taxa(list.both, ps.f)
 phyloseq <- ps.changed
@@ -1298,10 +1755,16 @@ plot(gt) # plot with grid draw
 ```
 
 
+<<<<<<< HEAD
 
 ##Add soil extracts plates to dataset
 
 ```{r message=FALSE, eval=FALSE}
+=======
+##Add soil extracts plates to dataset
+
+```{r,message = FALSE, eval = FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 load("~/storage/r-base_files/plates.RData")
 library(phyloseq)
 ps.f.plosmore <- prune_samples(sample_data(ps.f)$Medium %in% c("getchinson", "soil dna", "black soil extract", "sod-podzolic extract"),ps.f)
@@ -1315,7 +1778,11 @@ samp <-sample_data(ps)
 list(samp[["Soil"]])
 ```
 
+<<<<<<< HEAD
 ```{r message=FALSE}
+=======
+```{r,message = FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 setwd("~/storage/plates/plos/")
 library(phyloseq)
 ps.more <- readRDS(file = "~/storage/plates/ps.f.plosmore.rds")
@@ -1324,12 +1791,17 @@ ps.more@sam_data
 
 ###Otus/reads plot for expanded dataset
 
+<<<<<<< HEAD
 ```{r message=FALSE, echo=TRUE, fig.height=8, fig.width=12}
+=======
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 plot_rich_reads_samlenames_lm(ps.more)
 ```
 
 ###Beta plots with soil extracts
 
+<<<<<<< HEAD
 ```{r message=FALSE, echo=TRUE, fig.height=8, fig.width=16}
 beta_custom_norm_NMDS_elli(ps.more)
 ```
@@ -1369,6 +1841,81 @@ gbs.core.merged <- vst.median[rownames(gbs.core),]
 gbs.core.merged
 ```
 
+=======
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=16}
+beta_custom_norm_NMDS_elli(ps.more)
+```
+
+##What type of vst stabilisation model is optimal?
+
+```{r, message=FALSE,fig.height=15, fig.width=15, results=FALSE, fig.keep='all'}
+
+beta_custom_norm_PCoA_elli <- function(ps, seed = 7888, normtype="vst", color="Repeats", design = "Repeats"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  require(DESeq2)
+  library(ggforce)
+  
+
+  physeq <- ps
+  veganifyOTU <- function(physeq){
+    if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+    return(as(otu_table(physeq), "matrix"))
+  }
+  meta <- as(sample_data(physeq), "data.frame")
+  otus <- veganifyOTU(physeq)
+  otus <- t(otus)
+  deseq_counts_by_compl <- DESeqDataSetFromMatrix(otus, colData = meta, design = as.formula(paste( " ~ ", design)))
+  deseq_counts_vst_by_compl <- varianceStabilizingTransformation(deseq_counts_by_compl)
+  vst_trans_count_tab_complr <- assay(deseq_counts_vst_by_compl)
+  otu.table.compl <- otu_table(vst_trans_count_tab_complr, taxa_are_rows = TRUE)
+  otu.table.compl[otu.table.compl < 0.0] <- 0.0
+  ps.varstab <- physeq
+  otu_table(ps.varstab) <- otu.table.compl
+  
+  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
+  
+  #beta and ordination
+  
+  ordination.b <- ordinate(ps.varstab, "PCoA", "bray")
+  ordination.u <- ordinate(ps.rand, "PCoA", "unifrac")
+  ordination.w <- ordinate(ps.varstab, "PCoA", "wunifrac")
+  
+  #plotting
+  p1 = plot_ordination(ps, ordination.b, type="sample", color="Description", title="A. Bray-Curtis", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  p2 = plot_ordination(ps, ordination.u, type="sample", color="Description", title="B. UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  p3 = plot_ordination(ps, ordination.w, type="sample", color="Description", title="C. weighted UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) + 
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  #merge by ggpubr
+  
+  p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "none", font.label = list(size = 12, face = "bold", color ="black"))
+  
+  return(list(p.all, ordination.b, ordination.u, ordination.w))
+}
+
+beta_plot_function_result_medium_soil <- beta_custom_norm_PCoA_elli(ps.f, design = "Medium_or_Soil")
+beta_plot_function_result_medium_soil_soil <- beta_custom_norm_PCoA_elli(ps.f, design = "Medium_or_Soil + Soil")
+beta_plot_function_result_medium_repeats <- beta_custom_norm_PCoA_elli(ps.f, design = "Medium_or_Soil/Soil")
+
+ggarrange(beta_plot_function_result_medium_soil[[1]], beta_plot_function_result_medium_soil_soil[[1]], beta_plot_function_result_medium_repeats[[1]], ncol = 1, nrow = 3, common.legend = TRUE, legend = "none", font.label = list(size = 12, face = "bold", color ="black"))
+plot_scree(beta_plot_function_result[[4]])
+ord_b <- beta_plot_function_result[2]
+beta_plot_function_result_medium_soil[[1]]
+
+```
+
+##Kinda searching of meaning in diversity param histeric
+Use with caution
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ###g/bs core
 ```{r}
 vst.median
@@ -1390,6 +1937,10 @@ gbs.core <-  cbind2(vst.median.r[core.seqs,],ps.f@tax_table@.Data[core.seqs,])
 gbs.core
 
 ```
+<<<<<<< HEAD
+=======
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ###culturome core
 ```{r}
 vst.median
@@ -1489,7 +2040,11 @@ all.resMean.rel.actinobaceria
 ```
 
 ### alpha
+<<<<<<< HEAD
 ```{r fig.height=12, fig.width=20}
+=======
+```{r, , fig.height=12, fig.width=20}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 library(ggpubr)
 alpha.custom <- function(ps.f, arrga = "PD"){
   require(picante)
@@ -1570,9 +2125,16 @@ divnet_merged
 saveRDS(divnet_merged, file = "~/storage/plates/divnet_merged.rds")
 saveRDS(divnet_asv, file = "~/storage/plates/divnet_asv.rds")
 
+<<<<<<< HEAD
 
 ```
 
+=======
+divnet_merged
+```
+
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 rownames(meta)
 break.1
@@ -1581,6 +2143,10 @@ break.3
 break.4
 ```
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 ps.soil <- prune_samples(sample_data(ps.f)$Medium_or_Soil %in% c("soil"),ps.f)
 ps.soil <- prune_taxa(taxa_sums(ps.soil) > 0, ps.soil)
@@ -1619,6 +2185,7 @@ out.d.noPlant[order(out.d.noPlant$R2, decreasing = TRUE),]
 
 ```
 
+<<<<<<< HEAD
 ###Fisher test
 ```{r}
 gbs.core.merged
@@ -1662,6 +2229,8 @@ pval
 
 ```
 
+=======
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ###pd vs mpd
 ```{r}
 library(picante)
@@ -1734,7 +2303,13 @@ comdist.medium
 
 ses.mpd(ps.soil@otu_table@.Data, cophenetic(ps.soil@phy_tree))
 ```
+<<<<<<< HEAD
 ####centroids comdist
+=======
+
+####centroids comdist
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 usedist::dist_between_centroids(comdist.soil, names.soil.sp, names.soil.cz, squared = TRUE)
 usedist::dist_between_centroids(comdist.medium, names.medium.sp, names.medium.cz, squared = TRUE)
@@ -1742,7 +2317,13 @@ usedist::dist_between_centroids(comdist.soil.family, names.soil.sp, names.soil.c
 usedist::dist_between_centroids(comdist.medium.family, names.medium.sp, names.medium.cz, squared = TRUE)
 
 ```
+<<<<<<< HEAD
 ####centroids unifrac
+=======
+
+####centroids unifrac
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 use.soil <- usedist::dist_between_centroids(unifrac.soil, names.soil.sp, names.soil.cz, squared = TRUE)
 use.medium <- usedist::dist_between_centroids(unifrac.medium, names.medium.sp, names.medium.cz, squared = TRUE)
@@ -1754,7 +2335,13 @@ paste0("medium phylotypes -", round(use.medium, 2))
 paste0("soil family -", round(use.soil.family, 2))
 paste0("medium family -", round(use.medium.family, 2))
 ```
+<<<<<<< HEAD
 #### how many families in dataset after taxa merging?
+=======
+
+#### how many families in dataset after taxa merging?
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 length(rownames(ps.medium.family@tax_table))
 length(rownames(ps.medium@tax_table))
@@ -1763,8 +2350,15 @@ length(rownames(ps.soil@tax_table))
 ?usedist::dist_between_centroids
 
 ```
+<<<<<<< HEAD
 ####family core
 ```{r message=FALSE}
+=======
+
+####family core
+
+```{r, message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 amp.medium.family <- phyloseq_to_amp(ps.medium.family)
 amp.soil.family <- phyloseq_to_amp(ps.soil.family)
 
@@ -1779,7 +2373,11 @@ amp_venn(amp.medium.family, group_by = "Soil", cut_a = 0.0000000000001)
 ```
 
 
+<<<<<<< HEAD
 ```{r message=FALSE}
+=======
+```{r, message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ps.soil.family <- tax_glom(ps.soil, taxrank="Family")
 unifrac.soil.family <- unifrac(ps.soil.family@otu_table@.Data, ps.soil.family@phy_tree)
 metadata.soil <- as(sample_data(ps.soil@sam_data), "data.frame")
@@ -1792,7 +2390,13 @@ metadata.medium <- as(sample_data(ps.medium@sam_data), "data.frame")
 adonis2(unifrac.medium.family ~ Soil , data = metadata.medium)
 ps.medium.family
 ```
+<<<<<<< HEAD
 ####comdist
+=======
+
+####comdist
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 comdist.soil <- comdist(ps.soil@otu_table@.Data, cophenetic(ps.soil@phy_tree))
 metadata.soil <- as(sample_data(ps.soil@sam_data), "data.frame")
@@ -1808,7 +2412,11 @@ comdist.soil.family
 ```
 
 ####comdist family
+<<<<<<< HEAD
 ```{r message=FALSE}
+=======
+```{r, message=FALSE}
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ps.soil.family <- tax_glom(ps.soil, taxrank="Family")
 comdist.soil.family <- comdist(ps.soil.family@otu_table@.Data, cophenetic(ps.soil.family@phy_tree))
 metadata.soil <- as(sample_data(ps.soil@sam_data), "data.frame")
@@ -1831,7 +2439,12 @@ names.medium.cz <- subset(ps.medium@sam_data, ps.medium@sam_data$Soil %in% "blac
 usedist::dist_between_centroids(comdist.soil.family, names.soil.sp, names.soil.cz, squared = TRUE)
 ```
 
+<<<<<<< HEAD
 ####map
+=======
+##map
+
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```{r}
 
 library(rnaturalearth)
@@ -1850,8 +2463,12 @@ probdata = tibble(site = c("Pskov Research Institute of Agriculture", "Kamennaya
 
 rivers <- ne_download(scale = 50, type = 'rivers_lake_centerlines', category = 'physical', returnclass = "sf")
 lakes <- ne_download(scale = 50, type = 'lakes', category = 'physical', returnclass = "sf")
+<<<<<<< HEAD
 
 ggplot(data = world) + 
+=======
+plot.map <- ggplot(data = world) + 
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
   geom_sf() +
   geom_sf(data = rivers, colour = "blue" , alpha = 0.3 ) + 
   geom_sf(data = lakes, fill = "blue", alpha = 0.5 ) +
@@ -1860,6 +2477,7 @@ ggplot(data = world) +
   shape = 20, colour = "red") +
   geom_text(data = probdata, aes(x = xlabel, y = ylabel, label =site), size = 3.2) + 
   theme_bw() 
+<<<<<<< HEAD
  
 ```
 
@@ -1889,4 +2507,7 @@ ggiNEXT(in.out, type=2, color.var="site") +
   ylim(c(0.9,1)) +
   theme_bw(base_size = 18) + 
   theme(legend.position="none")
+=======
+plot.map
+>>>>>>> 0e52d7628c241006ce44743f0e759f68c27e184b
 ```

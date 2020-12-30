@@ -1,0 +1,488 @@
+---
+title: "Glyc"
+author: "GrGladkov"
+date: "02 11 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/home/gladkov/storage/glyc/")
+```
+
+
+```{r}
+library(dada2)
+library(ShortRead)
+library(Biostrings)
+library(seqinr)
+library(tidyverse)
+library(fuzzyjoin)
+```
+
+```{r, fig.height=5, fig.width=12}
+library(naturalsort)
+path <- "in/"
+FWD <- "GCATCGATGAAGAACGCAGC" 
+REV <- "TCCTCCGCTTATTGATATGC"
+cutFs <- sort(list.files(path.cut, pattern = "_R1_001.fastq.gz", full.names = TRUE))
+cutRs <- sort(list.files(path.cut, pattern = "_R2_001.fastq.gz", full.names = TRUE))
+fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
+fnFs <- sort(list.files(path, pattern = "_F_filt.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "_R_filt.fastq.gz", full.names = TRUE))
+get.sample.name <- function(fname) strsplit(basename(fname), "_")[[1]][1]
+sample.names <- unname(sapply(cutFs, get.sample.name))
+basename(fnFs)
+sort(fnFs)
+filenames_d <- data_frame(forward_reads = basename(fnFs), reverse_reads = basename(fnRs) )
+filenames_d
+fnFs <- naturalsort(fnFs)
+fnRs <- naturalsort(fnRs)
+plotQualityProfile(fnRs[8])
+```
+
+### Map import
+Kinda hardcoded
+
+```{r}
+path <- "in/"
+list.files()
+library(tidyverse)
+fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
+fnFs <- naturalsort(fnFs)
+fnRs <- naturalsort(fnRs)
+map_pr <- read_tsv("map_pr.csv")
+map_samples <- read_tsv("map_samples.csv")
+map_pr <- map_pr %>% dplyr::rename(primer_soil_from = sample)
+filenames_d <- data_frame(forward_reads = basename(fnFs), reverse_reads = basename(fnRs) )
+
+map <- left_join(map_samples, map_pr, by = "primer") %>% mutate(sample = as.character(sample))
+map %>% regex_inner_join(filenames_d, by = c(sample = "forward_reads"))
+primerLenght <- unique(map$primer)
+primerLenght <- data.frame(primer = primerLenght, innerLenght = c(175, 165, 157, 170, 141, 148, 159))
+
+map <- map %>% 
+  mutate(forwardPrimerLenght = nchar(map$F)) %>% 
+  mutate(reversePrimerLenght = nchar(map$R))
+map <- left_join(map, primerLenght, by = "primer")
+map <- map %>%  
+  mutate(forwardReadLenght = innerLenght + nchar(F)) %>% 
+  mutate(reverseReadLenght = innerLenght + nchar(R))
+
+map <- map %>% 
+  mutate(sample = paste0("cellulase-", sample)) %>% 
+  column_to_rownames("sample")
+
+
+map
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+path
+
+
+FWD.RC <- dada2:::rc(map$F[1])
+REV.RC <- dada2:::rc(map$R[2])
+
+R1.flags <- paste("-g", FWD, "-a", REV.RC) 
+R1.flags
+
+```
+
+
+```{r}
+library(dplyr)
+data_in <- mtcars[,c(1,3)]
+nam <- names(mtcars[,c(1,3)])
+fit <- lm(unquote(nam[1]) ~ unquote(nam[2]), data = data_in)
+
+
+allOrients <- function(primer) {
+    # Create all orientations of the input sequence
+    require(Biostrings)
+    dna <- DNAString(primer)  # The Biostrings works w/ DNAString objects rather than character vectors
+    orients <- c(Forward = dna, Complement = complement(dna), Reverse = reverse(dna), 
+        RevComp = reverseComplement(dna))
+    return(sapply(orients, toString))  # Convert back to character vector
+}
+
+allOrients(FWD)
+?dada2::rc
+```
+
+
+
+
+```{r}
+fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
+
+
+plotQualityProfile(fnRs[8])
+```
+
+```{r}
+plotQualityProfile(fnRs)
+
+```
+
+
+[1] "cellulase-10_S345_L001_R1_001.fastq.gz" "cellulase-10_S345_L001_R2_001.fastq.gz" "cellulase-1_S336_L001_R1_001.fastq.gz" 
+ [4] "cellulase-1_S336_L001_R2_001.fastq.gz"  "cellulase-2_S337_L001_R1_001.fastq.gz"  "cellulase-2_S337_L001_R2_001.fastq.gz" 
+ [7] "cellulase-3_S338_L001_R1_001.fastq.gz"  "cellulase-3_S338_L001_R2_001.fastq.gz"  "cellulase-4_S339_L001_R1_001.fastq.gz" 
+[10] "cellulase-4_S339_L001_R2_001.fastq.gz"  "cellulase-5_S340_L001_R1_001.fastq.gz"  "cellulase-5_S340_L001_R2_001.fastq.gz" 
+[13] "cellulase-6_S341_L001_R1_001.fastq.gz"  "cellulase-6_S341_L001_R2_001.fastq.gz"  "cellulase-7_S342_L001_R1_001.fastq.gz" 
+[16] "cellulase-7_S342_L001_R2_001.fastq.gz"  "cellulase-8_S343_L001_R1_001.fastq.gz"  "cellulase-8_S343_L001_R2_001.fastq.gz" 
+[19] "cellulase-9_S344_L001_R1_001.fastq.gz"  "cellulase-9_S344_L001_R2_001.fastq.gz"  "cutadapt"  
+
+
+```{r}
+cutadapt <- "/home/gladkov/.conda/envs/pandas/bin/cutadapt"
+system2(cutadapt, args = "--version")
+path.cut <- file.path(path, "cutadapt")
+if(!dir.exists(path.cut)) dir.create(path.cut)
+
+```
+
+### Create basic function for first part of  dada2
+
+```{r} 
+  sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+  filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+  filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+  sample.names
+  paste0(strsplit(basename(fnFs[1]), "_")[[1]][1], "_F_filt.fastq.gz")
+```
+
+
+
+```{r}
+mult = TRUE
+for (val in sample.names){
+    filtFs_local <- file.path(path, "filtered", paste0(val, "_F_filt.fastq.gz"))
+    filtRs_local <- file.path(path, "filtered", paste0(val, "_R_filt.fastq.gz"))
+    fnFs_local <- fnFs[grepl(paste0(val, "_"), fnFs)]
+    fnRs_local <- fnRs[grepl(paste0(val, "_"), fnRs)]
+    truncLenF <- map[val, "forwardReadLenght"]
+    truncLenR <- map[val, "reverseReadLenght"]
+    trimLeftF <- nchar(map[val, "F"])
+    trimLeftR <- nchar(map[val, "R"])
+    print(val)
+    # print(filtFs)
+    # print(fnRs_local)
+    # print(filtRs)
+    out_single <- filterAndTrim(fnFs_local,
+                         filtFs_local,
+                         fnRs_local,
+                         filtRs_local,
+                         truncLen=c(truncLenF, truncLenR),
+                         trimLeft=c(trimLeftF, trimLeftR),
+                         maxN=0,
+                         maxEE=c(1,2),
+                         rm.phix=TRUE,
+                         compress=TRUE,
+                         multithread=TRUE)
+    out <- if (exists("out") == TRUE) {
+    rbind(out, out_single)
+  } else {
+      out_single
+  }
+  }
+
+errF <- learnErrors(filtFs, multithread=mult)
+  errR <- learnErrors(filtRs, multithread=mult)
+  derepFs <- derepFastq(filtFs, verbose=TRUE)
+  derepRs <- derepFastq(filtRs, verbose=TRUE)
+  # Name the derep-class objects by the sample names
+  names(derepFs) <- sample.names
+  names(derepRs) <- sample.names
+  dadaFs <- dada(derepFs, err=errF, multithread=mult)
+  dadaRs <- dada(derepRs, err=errR, multithread=mult)
+  mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+  seqtab <- makeSequenceTable(mergers)
+  dim(seqtab)
+  table(nchar(getSequences(seqtab)))
+  seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+```
+
+
+```{r}
+
+  getN <- function(x) sum(getUniques(x))
+  briefToSeq <- colnames(seqtab.nochim)
+  names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+  st.brief <- seqtab.nochim
+  colnames(st.brief) <- names(briefToSeq) 
+  
+  write.table(briefToSeq, file = "name_Brief", sep = "\t")
+  track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+  track
+  rm(out)
+  colnames(track) <- c("in", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+  rownames(track) <- sample.names
+  write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+  track
+
+  st.brief.t.df <- data.frame(t(st.brief))
+  st.brief.t.df
+  
+  st.brief.t.df %>% summarise_all(~sum(. != 0))
+  
+  write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+  briefToSeq.df <- data.frame(briefToSeq)
+  briefToSeq.df
+  briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+  briefToSeq.names <- as.list(rownames(briefToSeq.df))
+  write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+  briefToSeq.names
+  write.table(map, file = "map_mod.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+```
+
+```{r}
+map
+
+```
+
+```{r}
+library(tidyverse)
+colnames(seqtab.nochim)[1]
+list.files()
+```
+
+```{r}
+map <- read_delim("map_mod.tsv", delim = "\t")
+otu_table <- read_delim("otu_table.txt", delim = "\t") %>%  dplyr::rename(ID = X1)
+ids_1.10 <- otu_table %>% filter(cellulase.3 > 10 | cellulase.10 > 10) %>% pull("ID")
+
+otu_table %>% filter(cellulase.3 > 5)
+otu_table %>% summarise_all(~sum(. > 100))
+otus_sum <- otu_table %>% summarise_all(~sum(. != 0))
+colnames(otus_sum) <- c("all", paste0("c", 1:10))
+otus_sum <- otus_sum[-1]
+hist(otus_sum)
+paste0("c", 1:10)
+otu_table %>% filter(cellulase.1 > 10)
+gotus_sum <- gather(otus_sum, key = "library", value = "phylotypes")
+gotus_sum$library <- as.factor(gotus_sum$library)
+gotus_sum
+ggplot(data = otu_table) + 
+  geom_boxplot(aes(x = library, y = phylotypes),color="black", fill="white")
+otu_table
+select(map, query, soil)
+
+```
+
+```{r}
+otu_table
+```
+
+
+```{r}
+library(seqinr)
+rf <- seqinr::read.fasta("rep_seq.fasta", as.string = TRUE)
+rf_1.10 <- rf[ids_1.10]
+seq_vector <- unlist(rf_1.10, use.names = FALSE)
+write.fasta(rf_1.10, unlist(attributes(rf_1.10), use.names=FALSE), file.out = "rep_seq_1_10.fasta")
+```
+
+### tree import
+"/home/gladkov2/anaconda2/envs/pandas/bin/mafft"  --auto --phylipout --inputorder "rep_seq_1_10.fasta" > "align_1_10"
+
+```{r}
+
+library(treeio)
+library(ggtree)
+
+tree <- read.tree("align_1_10.treefile")
+tr <- tree
+ptr <- ggtree(tree, ladderize = F) + geom_tiplab(mapping = aes(text = 1), align=TRUE, linesize=.5, size = 1.9)
+
+```
+
+#### Seqinr translate refs
+
+try find nN/Ds. Maybe we get some amazing new data after that? Who knows...
+
+```{r}
+
+tr_3_10_reps <- translate(s2c(seq_vector[1]))
+seq_vector[1]
+seqinr::translate("ataccgacgtcaagcgcttcgacggcaatt")
+s2c(seq_vector[1])
+test <- s2c("tctgagcaaataaatcgg")
+c2s(seqinr::translate(s2c(seq_vector[1]), frame = 2))
+
+nice_translate <- function(rep){
+  require(seqinr)
+  seq <- unlist(rf, use.names = FALSE)
+
+}
+otu_table
+map_3.10_abund <- otu_table %>% 
+  filter(cellulase.3 > 10 | cellulase.10 > 10) %>% 
+  select(ID, cellulase.3, cellulase.10) %>% 
+  mutate(Soil = ifelse(cellulase.3 > 5 & cellulase.10 > 5, "both", ifelse(cellulase.3 > 5, "sod-podzolic", "chernozem")))
+  
+top_3.10 <- otu_table %>% filter(cellulase.3 > 500 | cellulase.10 > 500) %>% pull(ID)
+rf[top_3.10]
+map_3.10_abund
+length(tree$tip.label)
+```
+
+
+```{r}
+library(viridis)
+library(ggtree)
+
+align_3.10_phylip <- read.alignment("align_1_10_align_phylip", format = "phylip")
+
+write.fasta(align_3.10_phylip$seq, file.out = "align_3.10.fasta", names = trimws(align_3.10_phylip$nam))
+
+grp_ne <- list(sod_podzolic = filter(map_3.10_abund, map_3.10_abund$Soil == "sod-podzolic")$ID,
+  chernozem = filter(map_3.10_abund, map_3.10_abund$Soil == "chernozem")$ID,
+  both = filter(map_3.10_abund, map_3.10_abund$Soil == "both")$ID)
+
+tree <- read.tree("align_1_10.treefile")
+ptree_1.10 <- ggtree::msaplot(ggtree(tree), fasta="align_3.10.fasta", color = c("white", viridis(4, option = "C")[1], viridis(4,option = "C")[2], viridis(4,option = "C")[3], viridis(4, option = "C")[4]), width = 1.5) 
+groupOTU(ptree_1.10, grp_ne, "Soil", ) + aes(color=Soil) +
+  theme(legend.position="right", text = element_text(size = 20)) +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+```
+
+
+```{r}
+library(ape)
+al_3.10_ape <- read.FASTA("align_3.10.fasta")
+dnds_ape <- dnds(al_3.10_ape, code = 1, codonstart = 2, quiet = FALSE)
+dnds_ape
+```
+
+```{r}
+
+ggtree(tree, aes(color=dnds_ape), mrsd="2013-01-01", ndigits = 2) +
+    scale_color_continuous(name='dN/dS', limits=c(0, 1.5),
+                           oob=scales::squish, low="green", high="red")
+
+ggtree(tree) + scale_color_continuous(high='#D55E00', low='#0072B2')
+
+
+```
+
+
+
+```{r}
+map <- read_delim("map_mod.tsv", delim = "\t")
+otu_table <- read_delim("otu_table.txt", delim = "\t") %>%  dplyr::rename(ID = X1)
+ids_2.5 <- otu_table %>% filter(cellulase.2 > 5 | cellulase.5 > 5) %>% pull("ID")
+ids_2.5
+rf <- seqinr::read.fasta("rep_seq.fasta", as.string = TRUE)
+rf_2.5 <- rf[ids_2.5]
+seq_vector <- unlist(rf_2.5, use.names = FALSE)
+seq_vector
+write.fasta(rf_2.5, unlist(attributes(rf_2.5), use.names=FALSE), file.out = "rep_seq_2_5.fasta")
+```
+
+
+
+```{r}
+
+library(viridis)
+
+map_2.5_abund <- otu_table %>% 
+  filter(cellulase.2 > 5 | cellulase.5 > 5) %>% 
+  select(ID, cellulase.2, cellulase.5) %>% 
+  mutate(Soil = ifelse(cellulase.2 > 5 & cellulase.5 > 5, "both", ifelse(cellulase.2 > 5, "sod-podzolic", "chernozem")))
+
+align_2.5_phylip <- read.alignment("align_2_5", format = "phylip")
+
+write.fasta(align_2.5_phylip$seq, file.out = "align_2.5.fasta", names = trimws(align_2.5_phylip$nam))
+
+grp_ne <- list(sod_podzolic = filter(map_2.5_abund, map_2.5_abund$Soil == "sod-podzolic")$ID,
+  chernozem = filter(map_2.5_abund, map_2.5_abund$Soil == "chernozem")$ID,
+  both = filter(map_2.5_abund, map_2.5_abund$Soil == "both")$ID)
+grp_ne
+tree <- read.tree("align_2_5.treefile")
+ptree_1.10 <- msaplot(ggtree(tree), fasta="align_2.5.fasta", color = c("white", viridis(4, option = "C")[1], viridis(4,option = "C")[2], viridis(4,option = "C")[3], viridis(4, option = "C")[4]), width = 1.5) 
+tree_2.5 <- groupOTU(ggtree(tree), grp_ne, "Soil", ) + aes(color=Soil) +
+  theme(legend.position="right") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)+ theme(text = element_text(size = 20))
+
+
+```
+```{r}
+map <- read_delim("map_mod.tsv", delim = "\t")
+otu_table <- read_delim("otu_table.txt", delim = "\t") %>%  dplyr::rename(ID = X1)
+ids_1.4 <- otu_table %>% filter(cellulase.1 > 1 | cellulase.4 > 1) %>% pull("ID")
+ids_2.5
+rf <- seqinr::read.fasta("rep_seq.fasta", as.string = TRUE)
+rf_1.4 <- rf[ids_1.4]
+seq_vector <- unlist(rf_1.4, use.names = FALSE)
+seq_vector
+write.fasta(rf_1.4, unlist(attributes(rf_1.4), use.names=FALSE), file.out = "rep_seq_1_4.fasta")
+```
+
+
+
+```{r}
+map_1.4_abund <- otu_table %>% 
+  filter(cellulase.1 > 1 | cellulase.4 > 1) %>% 
+  select(ID, cellulase.1, cellulase.4) %>% 
+  mutate(Soil = ifelse(cellulase.1 > 1 & cellulase.4 > 1, "both", ifelse(cellulase.4 > 1, "sod-podzolic", "chernozem")))
+
+
+grp_ne <- list(sod_podzolic = filter(map_1.4_abund, map_1.4_abund$Soil == "sod-podzolic")$ID,
+  chernozem = filter(map_1.4_abund, map_1.4_abund$Soil == "chernozem")$ID,
+  both = filter(map_1.4_abund, map_1.4_abund$Soil == "both")$ID)
+grp_ne
+tree <- read.tree("align_1_4.treefile")
+ptree_1.10 <- msaplot(ggtree(tree), fasta="align_2.5.fasta", color = c("white", viridis(4, option = "C")[1], viridis(4,option = "C")[2], viridis(4,option = "C")[3], viridis(4, option = "C")[4]), width = 1.5) 
+tree_1.4 <- groupOTU(ggtree(tree), grp_ne, "Soil", ) + aes(color=Soil) +
+  theme(legend.position="right") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8) + theme(text = element_text(size = 20))
+
+library(ggpubr)
+tree_1.4
+ggarrange(tree_1.4, tree_2.5, labels = c("NBJEAOJI_163127", "NBJEAOJI_47814"), common.legend = TRUE, legend = "bottom", font.label = list(size = 11, font = "plain"))
+
+
+```
+
+```{r}
+library(tidyverse)
+map <- read_delim("sum.tsv", delim = "\t")
+map.d <- map %>% mutate(sample = as.factor(sample)) %>% 
+  mutate(sample = plyr::revalue(sample, c("c1" = "c14", "c2" = "c26", "c3" = "c29", "c4" = "c46")))
+colnames(map.d) <- c("community", "description", "percent")
+ggplot(map.d, aes(fill=community, y=percent, x=description)) + 
+  geom_bar(position="dodge", stat="identity") + 
+  scale_fill_viridis_d(option = "plasma") +
+  theme_bw() +
+  theme(axis.text.y=element_text(size = 12, face = "bold"),
+        legend.text = element_text(size = 15),
+        axis.title.y=element_blank()) +
+  coord_flip() +
+  guides(fill = guide_legend(reverse = TRUE))
+  
+  
+
+```
+
+
+```{r}
+
+map.d 
+```
+
+
+
+

@@ -1,0 +1,344 @@
+<style type="text/css">
+.main-container {
+  max-width: 2000px;
+  margin-left: auto;
+  margin-right: auto;
+}
+</style>
+
+```
+title: "krim_chrono"
+author: "GrGladkov"
+date: "8 05 20"
+output: html_document
+```
+
+```{r set-options, echo=FALSE, cache=FALSE}
+options(width = 2000)
+```
+
+```{r setup, include=FALSE}
+setwd("~/storage/krim_chrono/shit_data/")
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = getwd())
+knitr::opts_knit$set(stop_on_error = 2L)
+```
+
+##Import 
+```{r, message=FALSE, rows.print = 20,echo=FALSE}
+setwd("~/storage/krim_chrono/shit_data/")
+library(phyloseq)
+ps <- readRDS(file = "~/storage/krim_chrono/shit_data/ps.krim_chrono.rds") 
+
+setwd("~/storage/krim_chrono/shit_data/")
+library(phyloseq)
+ps <- readRDS(file = "~/storage/krim_chrono/shit_data/ps.krim_chrono.rds") 
+metadata <- ps@sam_data
+metadata$Horizon <- as.character(metadata$Horizon)
+metadata$Horizon[metadata$Horizon == "A"] <- "AY"
+metadata$Horizon <- as.factor(metadata$Horizon)
+metadata
+metadata$Description <- as.character(metadata$Description)
+metadata$Description[metadata$Description == "K6-A"] <- "K6-AY"
+metadata
+metadata$Description <- factor(metadata$Description, levels =  c("K1-O", "K1-AY", "K1-AC", "K2-AY", "K2-C", "K3-AY", "K3-C", "K6-AY"))
+metadata <- metadata[order(metadata$Description, decreasing = FALSE),]
+#colnames(metadata) <- 
+colnames(metadata) <- c("Site", "Horizon", "Description" ,"P2O5", "K2O","pH","TOC","C", "N")
+sample_data(ps) <- metadata
+ps.f <-  subset_samples(ps, sample_names(ps) != 'kimeklis.K.20')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'kimeklis.K.22')
+ps.f <-  subset_samples(ps.f, sample_names(ps.f) != 'kimeklis.K.23')
+ps.f <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+
+
+```
+
+###некорректный p-value chaking DESeqom на уровне филы
+первые 20 самых представленных фил(В графах AY и C - нормированные риды, baseMean - средняя по ним)
+####между горизонтами AY и C для точек 2 и 3
+```{r, message=FALSE, rows.print = 20, echo=FALSE}
+des_w_simper <- function(ps, factor){
+  require(DESeq2)
+  require(vegan)
+  require(tibble)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  diagdds = DESeq(diagdds)
+  samp <-sample_data(ps)
+  aggdata <- t(aggregate.data.frame(as.data.frame(as.data.frame(t(diagdds@assays@data$mu))), by=list(samp[[factor]]), median))
+  colnames(aggdata) <- aggdata[1,]
+  aggdata <- aggdata[-1,]
+  res = results(diagdds)
+  res.df <- as.data.frame(res)
+  nice <- cbind(res.df, as.data.frame(ps@tax_table@.Data[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])
+} 
+
+ps.23 <- prune_samples(sample_data(ps.f)$Site %in% c("K2", "K3"), ps.f)
+ps.23  <- prune_taxa(taxa_sums(ps.23) > 0, ps.23)
+
+ps.23.phylum <- tax_glom(ps.23,  "phylum")
+
+
+des.23.phylum <- des_w_simper(ps.23.phylum, "Horizon")
+des.23.little <- des.23.phylum[,c("phylum", "baseMean" , "log2FoldChange", "padj", "AY", "C")]
+des.23.little[order(des.23.little$baseMean, decreasing = TRUE),]
+```
+
+####для точки 2
+```{r, message=FALSE, rows.print = 20, echo=FALSE}
+ps.23 <- prune_samples(sample_data(ps.f)$Site %in% c("K2"), ps.f)
+ps.23  <- prune_taxa(taxa_sums(ps.23) > 0, ps.23)
+
+ps.23.phylum <- tax_glom(ps.23,  "phylum")
+
+
+des.23.phylum <- des_w_simper(ps.23.phylum, "Horizon")
+des.23.little <- des.23.phylum[,c("phylum", "baseMean" , "log2FoldChange", "padj", "AY", "C")]
+des.23.little[order(des.23.little$baseMean, decreasing = TRUE),]
+```
+
+####для точки 3
+```{r, message=FALSE, rows.print = 20, echo=FALSE}
+ps.23 <- prune_samples(sample_data(ps.f)$Site %in% c("K3"), ps.f)
+ps.23  <- prune_taxa(taxa_sums(ps.23) > 0, ps.23)
+
+ps.23.phylum <- tax_glom(ps.23,  "phylum")
+
+des.23.phylum <- des_w_simper(ps.23.phylum, "Horizon")
+des.23.little <- des.23.phylum[,c("phylum", "baseMean" , "log2FoldChange", "padj", "AY", "C")]
+des.23.little[order(des.23.little$baseMean, decreasing = TRUE),]
+```
+
+```{r, message=FALSE, echo=FALSE}
+ps.f <- subset_taxa(ps.f, !is.na(phylum))
+
+ps.ay <- prune_samples(sample_data(ps.f)$Horizon %in% c("AY"),ps.f)
+ps.ay  <- prune_taxa(taxa_sums(ps.ay) > 0, ps.ay)
+
+ps.ay.w2 <- prune_samples(sample_data(ps.ay)$Site != c("K2"), ps.ay)
+ps.ay.w2 <- prune_taxa(taxa_sums(ps.ay.w2) > 0, ps.ay.w2)
+
+ps.c <- prune_samples(sample_data(ps.f)$Horizon %in% c("C", "AC"),ps.f)
+ps.c  <- prune_taxa(taxa_sums(ps.c) > 0, ps.c)
+
+
+ps.c.w2 <- prune_samples(sample_data(ps.c)$Site != c("K2"), ps.c)
+ps.c.w2 <- prune_taxa(taxa_sums(ps.c.w2) > 0, ps.c.w2)
+
+```
+
+```{r, message=FALSE, echo=FALSE}
+des_w_simper <- function(ps, factor){
+  require(DESeq2)
+  require(vegan)
+  require(tibble)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  diagdds = DESeq(diagdds)
+  samp <-sample_data(ps)
+  aggdata <- t(aggregate.data.frame(as.data.frame(as.data.frame(t(diagdds@assays@data$mu))), by=list(samp[[factor]]), median))
+  colnames(aggdata) <- aggdata[1,]
+  aggdata <- aggdata[-1,]
+  res = results(diagdds)
+  res.df <- as.data.frame(res)
+  nice <- cbind(res.df, as.data.frame(ps@tax_table@.Data[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])
+} 
+```
+
+```{r, eval=FALSE}
+des.ay <- des_w_simper(ps.ay.w2, "Site")
+des.c <- des_w_simper(ps.c.w2, "Site")
+```
+
+```{r,message=FALSE, eval=FALSE, echo=FALSE}
+filter.des <- function(des, alpha=0.1, baseMean = 15){
+  des <- des[(des$padj < alpha), ]
+  des <- des[(des$baseMean > baseMean),]
+  #des <- des[(des$log2FoldChange > 0),]
+  des <-  des[(is.na(des$padj) != TRUE),]
+  return(des)
+}
+alpha.c <- 0.05
+baseMean.c <- 60
+des.c.filt <- filter.des(des.c, alpha = alpha.c, baseMean = baseMean.c)
+len.c <- length(rownames(des.c.filt))
+paste0("length des.c after filtation with param: alpha - ", alpha.c, ", baseMean - ", baseMean.c, " ==> ", len.c)
+
+alpha.ay <- 0.05
+baseMean.ay <- 60
+des.ay.filt <- filter.des(des.ay, alpha = alpha.ay, baseMean = baseMean.ay)
+len.ay <- length(rownames(des.ay.filt))
+paste0("length des.ay  after filtation with param: alpha - ", alpha.ay, ", baseMean - ", baseMean.ay, " ==> ", len.ay)
+
+```
+
+```{r,  message=FALSE, results=FALSE, echo=FALSE, fig.height=12, fig.width=16, eval=FALSE}
+list.both <- c(rownames(des.c.filt), rownames(des.ay.filt)) 
+ps.changed <- prune_taxa(list.both, ps.f)
+phyloseq <- ps.changed
+library(ggtree)
+library(tidyverse)
+tree <- phyloseq@phy_tree
+taxa.pruned <- as.data.frame(phyloseq@tax_table@.Data)
+taxa.pruned <- taxa.pruned %>%  mutate_all(as.character)
+old.tips <- tree$tip.label
+matches <- regmatches(tree$tip.label, gregexpr("[[:digit:]]+", tree$tip.label))
+taxa.pruned$number <- as.numeric(unlist(matches))
+taxa.pruned$taxa <- ifelse(is.na(taxa.pruned$genus), taxa.pruned$family, taxa.pruned$genus)
+taxa.pruned[taxa.pruned == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
+taxa.pruned[taxa.pruned == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Pararhizobium"
+taxa.pruned$taxa2 <- ifelse(is.na(taxa.pruned$species), with(taxa.pruned, paste0(taxa)), with(taxa.pruned, paste0(taxa, " ", species )))
+taxa.pruned$taxa3 <- ifelse(taxa.pruned$phylum == "Proteobacteria", with(taxa.pruned, paste0(taxa.pruned$number, ".", taxa2, " // ", class)), with(taxa.pruned, paste0(taxa.pruned$number, ".", taxa2, " // ", phylum)))
+class(taxa.pruned$kingdom)
+tree$tip.label <- taxa.pruned$taxa3
+p <- ggtree(tree, ladderize = F) + geom_tiplab(mapping = aes(), align=TRUE, linesize=.5) + xlim(NA, 4)
+p
+```
+
+```{r,  message=FALSE,echo=FALSE, fig.height=12, fig.width=14, eval=FALSE}
+t.ay <-   as_tibble(des.ay, rownames = "id") %>% 
+  filter(id %in% phyloseq@phy_tree$tip.label) %>% 
+  select(id, log2FoldChange) %>%  
+  rename(ay = log2FoldChange)
+
+t.c <- as_tibble(des.c, rownames = "id") %>% 
+  filter(id %in% phyloseq@phy_tree$tip.label) %>% 
+  select(id, log2FoldChange) %>%  
+  rename(c = log2FoldChange)
+
+t.all <- full_join(t.ay, t.c)
+
+names.d <-  cbind(long = tree$tip.label, short = old.tips) %>% data.frame(row.names = "short")
+t.names <- as_tibble(names.d, rownames = "id")
+d.all.tips <- full_join(t.names, t.all) %>%  select(-c(id)) %>% 
+  as.data.frame() %>% column_to_rownames("long")
+
+p2 <- gheatmap(p, d.all.tips, offset=2, width=0.8)  + scale_colour_gradientn(colours = c("blue", "white", "red"),na.value = "grey50", guide = "colourbar",aesthetics = "fill") 
+p2 <- p2 + labs(fill = "L2FC K1/K3")
+
+```
+
+```{r, message=FALSE,echo=FALSE, fig.height=14, fig.width=14, eval=FALSE}
+otus.ay.rel <- t(apply(otu_table(ps.ay), 1, function(x) x / sum(x)))
+otus.c.rel <- t(apply(otu_table(ps.c), 1, function(x) x / sum(x)))
+# for ay
+as_tibble(t(otus.ay.rel ), rownames = "id" ) %>% 
+  filter(id %in% phyloseq@phy_tree$tip.label) %>%
+  select(id) -> id.ay
+as_tibble(t(otus.ay.rel), rownames = "id" ) %>% 
+  filter(id %in% phyloseq@phy_tree$tip.label) %>%
+  select_if(is.numeric) %>% 
+  replace(is.na(.), 0) %>% 
+  mutate(ayMean=rowMeans(.)) %>% 
+  select(ayMean) -> res.ay
+res.ayMean.rel <- cbind2(id.ay,res.ay)
+
+# for c
+as_tibble(t(otus.c.rel), rownames = "id" ) %>% 
+  filter(id %in% phyloseq@phy_tree$tip.label) %>%
+  select(id) -> id.c
+as_tibble(t(otus.c.rel), rownames = "id" ) %>% 
+  filter(id %in% phyloseq@phy_tree$tip.label) %>%
+  select_if(is.numeric) %>% 
+  replace(is.na(.), 0) %>% 
+  mutate(cMean=rowMeans(.)) %>% 
+  select(cMean) -> res.c
+res.cMean.rel <- cbind2(id.c, res.c)
+
+
+all.resMean.rel <- full_join(res.ayMean.rel, res.cMean.rel)
+all.resMean.rel %>% replace(is.na(.), 0) -> all.resMean.rel
+all.resMean.rel$ayMean <- 0 - all.resMean.rel$ayMean
+all.resMean.rel.melted <- reshape2::melt(all.resMean.rel, id=c("id"))
+
+library(reshape2)
+library(ggstance)
+all.resMean.rel.melted <- melt(all.resMean.rel, id=c("id"))
+first.tree <- phyloseq@phy_tree
+ids.tree <-  data.frame(id = first.tree$tip.label, id.taxa = tree$tip.label)
+some.join <- full_join(ids.tree, all.resMean.rel.melted)
+some.join <- subset(some.join, select = -c(id))
+some.join["numbers"] <-  ifelse(some.join$value == 0, NA, abs(some.join$value))
+some.join$value <- some.join$value*100
+some.join["position"] <-  ifelse(some.join$value >= 0, some.join$value + 0.5, some.join$value - 0.5)
+p4 <- facet_plot(p2, panel = "AY / C", data = some.join,  geom = geom_barh, 
+                 mapping = aes(x = value, label=value), color = "salmon", fill = "white",
+                 stat='identity')
+
+p4 <- facet_plot(p4, geom=geom_text , data = some.join, mapping=aes(x=position,label=round(numbers*100, digits = 2)), panel = "AY / C")
+
+library(gtable)
+library(grid)
+gt <-  ggplot_gtable(ggplot_build(p4))
+gt$widths[7] <-  0.5*gt$widths[7] # in this case it was colmun 7 - reduce the width by a half
+plot(gt) # plot with grid draw
+
+```
+
+###K2AY <= K3AY
+padj <= 0.1
+sorted by baseMean
+
+```{r, message=FALSE, rows.print = 30, echo=FALSE}
+ps.23.ay <- prune_samples(sample_data(ps.f)$Description %in% c("K2-AY", "K3-AY"), ps.f)
+ps.23.ay  <- prune_taxa(taxa_sums(ps.23.ay) > 0, ps.23.ay)
+
+
+des.23.ay<- des_w_simper(ps.23.ay, "Site")
+des.23.ay.little <- des.23.ay[des.23.ay$pvalue <= 0.05,]
+des.23.ay.little <- des.23.ay.little[,c("class", "family", "genus", "species" , "log2FoldChange", "padj","baseMean", "K2", "K3")]
+head(des.23.ay.little[order(des.23.ay.little$baseMean, decreasing = TRUE),], n=30)
+```
+
+###K3C <= K2C
+padj <= 0.05
+sorted by baseMean
+
+```{r, message=FALSE, rows.print = 30, echo=FALSE}
+ps.32.c <- prune_samples(sample_data(ps.f)$Description %in% c("K3-C", "K2-C"), ps.f)
+ps.32.c  <- prune_taxa(taxa_sums(ps.32.c) > 0, ps.32.c)
+
+
+des.32.c<- des_w_simper(ps.32.c, "Site")
+des.32.c.little <- des.32.c[des.32.c$pvalue <= 0.05,]
+des.32.c.little <- des.32.c.little[,c("class", "family", "genus", "species" , "log2FoldChange", "padj","baseMean")]
+head(des.32.c.little[order(des.32.c.little$baseMean, decreasing = TRUE),], n=30)
+```
+
+###K6AY <= K3AY
+padj <= 0.05
+sorted by baseMean
+
+```{r, message=FALSE, rows.print = 30, echo=FALSE}
+ps.63.ay <- prune_samples(sample_data(ps.f)$Description %in% c("K6-AY", "K3-AY"), ps.f)
+ps.63.ay  <- prune_taxa(taxa_sums(ps.63.ay) > 0, ps.63.ay)
+
+
+des.63.ay<- des_w_simper(ps.63.ay, "Site")
+des.63.ay.little <- des.63.ay[des.63.ay$pvalue <= 0.05,]
+des.63.ay.little <- des.63.ay.little[,c("class", "family", "genus", "species" , "log2FoldChange", "padj","baseMean")]
+head(des.63.ay.little[order(des.63.ay.little$baseMean, decreasing = TRUE),],n=30)
+```
+
+###K6AY <= K1AY
+padj <= 0.05
+sorted by baseMean
+
+```{r, message=FALSE, rows.print = 30, echo=FALSE}
+ps.61.ay <- prune_samples(sample_data(ps.f)$Description %in% c("K6-AY", "K1-AY"), ps.f)
+ps.61.ay  <- prune_taxa(taxa_sums(ps.61.ay) > 0, ps.61.ay)
+
+
+des.61.ay<- des_w_simper(ps.61.ay, "Site")
+des.61.ay.little <- des.61.ay[des.61.ay$pvalue <= 0.05,]
+des.61.ay.little <- des.61.ay.little[,c("class", "family", "genus", "species" , "log2FoldChange", "padj","baseMean")]
+head(des.61.ay.little[order(des.61.ay.little$baseMean, decreasing = TRUE),], n=30)
+```

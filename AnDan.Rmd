@@ -1,0 +1,174 @@
+---
+title: "Untitled"
+author: "GrGladkov"
+date: "20 05 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r cars}
+x_dlnorm <- seq(0, 100, by = 0.1)  
+y_dlnorm <- dlnorm(x_dlnorm, meanlog = 3, sdlog = 0.5) 
+density(y_dlnorm)
+y <- y_dlnorm[250:500]
+plot(y) 
+density.default(y)
+
+library(zoo)
+require(pracma)
+integrate(function(x) dlnorm(x, x_dlnorm, meanlog = 3, sdlog = 0.5) , lower = 25, upper = 50)
+
+
+
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r}
+
+library(Rmisc)
+library(future)
+library(future.apply)
+library(tidyverse)
+
+list.fac <- tibble(a = 100, b = 23, c = 42) %>% 
+  slice(rep(1:n(), each = 10000000))
+plan(multiprocess, workers = 30)
+mean(unlist(future_apply(list.fac, 1,  function(x) CI(rnorm(x[1], x[2], x[3]), ci = 0.95)[1])))
+rm(list.fac)
+future:::ClusterRegistry("stop")
+
+
+31.31221
+31.31022
+31.31109
+31.31334
+31.31022
+
+```
+
+
+
+```{r}
+library(tidyverse)
+
+mapp <- read.csv("~/storage/trash/games.csv", header=TRUE, sep=",")
+colnames(mapp)
+as.tibble(mapp) %>% 
+  subset(mapp$rated == "TRUE") %>% 
+  mutate(sum_rates = white_rating + black_rating) -> t.mapp
+ggplot(data=t.mapp) + geom_point(aes(x = sum_rates, y = turns, color = winner))
+ggplot(data=t.mapp) +  geom_boxplot(aes(x = winner, y = turns))
+aov.1 <- aov(turns*sum_rates ~ winner, data=t.mapp)
+summary(aov.1)
+w.d.mapp <- subset(t.mapp, t.mapp$winner != "draw") 
+aov.w.d <- aov(turns*sum_rates ~ winner, data=w.d.mapp)
+summary(aov.w.d)
+w.mapp <- subset(t.mapp, t.mapp$winner == "white") 
+fit <- lm(turns ~ sum_rates, data=w.d.mapp)
+anova(fit)
+plot(fit)
+predict.glm(fit, newdata = data.frame(sum_rates = c(3500)))
+
+```
+
+```{r}
+library(tidyverse)
+library(leaps)
+library(ggpubr)
+
+mapp <- read.csv("https://raw.githubusercontent.com/AnufrievGrigoriy/datasets/master/Moscow_Flats.csv", header=TRUE, sep=";")
+as.tibble(mapp) %>%
+  drop_na() %>% 
+  mutate_at(vars(brick, walk, floor, code), factor) -> t.mapp
+t.mapp
+fit <- lm(formula=price ~ totsp + livesp + kitsp + dist + metrdist + walk + brick + floor, data = t.mapp)
+anova(fit)
+plot(fit)
+leaps <- regsubsets(price ~ totsp + livesp + kitsp + dist + metrdist + walk + brick + floor, data = t.mapp, nbest=20)
+res <- summary(leaps)
+which.max(res$adjr2)
+which.min(res$bic)
+which.min(res$cp)
+res$outmat[117,]
+# оптимальная модель - всё
+#другой метод сабсета
+leaps.forward <- regsubsets(price ~ totsp + livesp + kitsp + dist + metrdist + walk + brick + floor + code, data = t.mapp,nbest=20, method = "forward")
+res.f <- summary(leaps.forward)
+which.max(res.f$adjr2)
+which.min(res.f$bic)
+which.min(res.f$cp)
+res$outmat[90,]
+# категориальные факторы не нужны, кроме ходьбы, хотьба нужна
+#сабсет наоборот
+leaps.backward <- regsubsets(price ~ totsp + livesp + kitsp + dist + metrdist + walk + brick + floor + code, data = t.mapp,nbest=20, method = "backward")
+res.b <- summary(leaps.backward)
+which.max(res.b$adjr2)
+which.min(res.b$bic)
+which.min(res.b$cp)
+res$outmat[25,]
+#важен только размер кухни и расстояние до метро
+# в мануале из которого я это стащил было еще много весёлого, но дальше - мне уже сложно, мне сложно понять происходящее
+# 11-я модель неплохо сочетается с ановой по полной модели, оставляю её
+
+fit.11 <- lm(formula=price ~ totsp + livesp + kitsp + dist + metrdist + walk, data = t.mapp)
+anova(fit.11)
+cbind2(fit.11$coefficients, fit$coefficients)
+#в общем влияет на каждой из модели примерно одинаково, всё логично выглядит
+#нестить по районам не стал
+
+#картинка
+p1 <- ggplot(data=t.mapp) + geom_point(aes(y=price, x=totsp)) + theme_bw()+
+    geom_smooth(aes(y=price, x=totsp),method=lm, se=TRUE)
+p2 <- ggplot(data=t.mapp) + geom_point(aes(y=price, x=livesp)) + theme_bw()+
+    geom_smooth(aes(y=price, x=livesp),method=lm, se=TRUE)
+p3 <- ggplot(data=t.mapp) + geom_point(aes(y=price, x=kitsp)) + theme_bw()+
+    geom_smooth(aes(y=price, x=kitsp),method=lm, se=TRUE)
+p4 <- ggplot(data=t.mapp) + geom_point(aes(y=price, x=dist)) + theme_bw()+
+    geom_smooth(aes(y=price, x=dist),method=lm, se=TRUE)
+p5 <- ggplot(data=t.mapp) + geom_point(aes(y=price, x=metrdist)) + theme_bw()+
+    geom_smooth(aes(y=price, x=metrdist),method=lm, se=TRUE)
+p6 <- ggplot(data=t.mapp) + geom_point(aes(y=price, x=walk)) + theme_bw()+
+    geom_smooth(aes(y=price, x=walk),method=lm, se=TRUE)
+
+ggarrange(p1, p2, p3, p4 , p5 , p6, nrow = 2 ,ncol = 3 , label.x = 0.105, common.legend = TRUE)
+
+# такое ощущение, что премиальные по метражу квартиры растут в цене уже не линейно
+
+```
+P
+```{r}
+library(vegan)
+library(tidyverse)
+
+keggames <- read.csv("~/storage/trash/vgsales.csv", header=TRUE, sep=",")
+as.tibble(keggames) %>% 
+  mutate(NamePlatform = paste0(Platform, " | ",Name, '-', Rank)) %>% 
+  remove_rownames() %>% as.data.frame() -> keggames
+keggmames <- subset(keggames, keggames$Global_Sales > 1)
+keggmames <- remove_rownames(keggmames)
+keggames <- column_to_rownames(keggmames,"NamePlatform")   
+
+keggames
+#PCA - keggames - табличечка
+pca <- prcomp(decostand(keggames[,c(7:11)], "standardize"))
+summary(pca)
+
+df_out <- as.data.frame(pca$x) %>% add_column(Genre = keggames$Genre) %>% 
+  add_column(Name = keggames$Name) 
+df_out
+
+ggplot(df_out, aes(PC1, PC2, colour=Genre, label = Name)) +
+  geom_point() + geom_text(size = 4, nudge_y = 0.1) +
+  facet_wrap(~ Genre)
+
+ggplot(df_out, aes(PC1, PC2, colour=Genre, label = Name)) +
+  geom_point() +
+  facet_wrap(~ Genre)
+```

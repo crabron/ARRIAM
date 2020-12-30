@@ -1,0 +1,200 @@
+---
+title: "Kuz"
+author: "GrGladkov"
+date: "26 11 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/kuz/")
+```
+
+```{r}
+#first run - with controls(its), pool - true, 2.5ee, 220-180
+# ls | grep Abacumov-Nal | xargs cp -t  ~/storage/nal/in
+
+setwd("~/storage/kuz/")
+path = "in/"
+path_trein_set = "~/storage/somebases/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.fa"
+name_Brief = "nameBrief.txt"
+
+truncLen = "220,180"
+maxEE = "2,5"
+mult = TRUE
+mlt = NULL
+  require(dada2)
+  require(Biostrings)
+  require(DECIPHER)
+  require(phyloseq)
+  require(seqinr)
+  require(data.table)
+  require(metagMisc)
+  require(tibble)
+
+# docker container run --rm -e AMPLICONLENGTH=[amplicon length] -e FORWARDPRIMERLENGTH=[forward primer length] \
+    # -e REVERSEPRIMERLENGTH=[reverse primer length] -v /path/to/fastqs:/data/input \
+    # -v / figaro
+
+# docker container run --rm -e AMPLICONLENGTH=260 -e FORWARDPRIMERLENGTH=20 \
+# -e REVERSEPRIMERLENGTH=19 -v /home/gladkov/storage/nal/in \
+# -v /home/gladkov/storage/nal figaro
+
+# python3 figaro.py -i /home/gladkov/storage/nal/in -o /home/gladkov/storage/nal -a 260 -f 20 -r 19
+
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+  
+plotQualityProfile(fnFs, aggregate = TRUE)
+plotQualityProfile(fnRs, aggregate = TRUE)
+fnFs  
+list.files()
+```
+
+```{r}
+
+library(tidyverse)
+library(naturalsort)
+library(phyloseq)
+
+map <- read_delim("~/storage/kuz/map.csv", delim = "\t") %>%
+  column_to_rownames("ID")
+map <- map %>%  mutate(Description = paste0(Region, "_", Site, "_", Horizon))
+View(map)
+
+ncol(otu_table)
+nrow(taxa)
+
+otus[21:24]
+
+otus <- read_delim( "~/storage/kuz/otu_table.txt" ,delim = "\t") %>% 
+  column_to_rownames("X1")
+
+col_names_otus <- colnames(otus)
+colnames_otus_nice <- paste0(sapply(strsplit(col_names_otus, "[.]"), 
+                            `[`, 2), sapply(strsplit(col_names_otus, "[.]"), `[`, 3))
+
+colnames(otus) <- colnames_otus_nice
+colnames_otus_nice
+otu_table <- t(as.matrix(otus))
+
+taxa <- read_delim("~/storage/kuz/taxa.txt", delim = "\t") %>% 
+  column_to_rownames("X1") %>% 
+  as.matrix()
+
+tree <- read_tree(treefile="~/storage/kuz/tree.nwk")
+
+ps <- phyloseq(otu_table(otu_table, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa),
+               phy_tree(tree))
+
+ps
+map <- map %>%  mutate(Description = paste0(Region, "_", Site, "_", Horizon))
+
+map <- map %>% mutate(Description = as.factor(Description))
+
+
+```
+
+
+```{r}
+# Plot alpha-diversity by selected metric
+plot_alpha <- function(ps, metric, group) {
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) + 
+    theme_light() + scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x=element_blank()) +
+    labs(y=paste("alpha-diversity index")) 
+}
+
+plot_alpha(ps, c("Observed","Shannon","InvSimpson"), "Description") 
+
+```
+```{r}
+
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+
+amp <- phyloseq_to_amp(ps)
+amp_heatmap(amp,tax_show = 60, group_by = "Description", tax_aggregate = "Genus", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+amp
+```
+
+
+```{r}
+ps_vst <- function(ps){
+  diagdds = phyloseq_to_deseq2(ps, ~ Description)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+ps.varstab <- ps_vst(ps)
+```
+
+```{r,fig.height=5, fig.width=12, results=FALSE}
+ps.rand <- rarefy_even_depth(ps)
+
+ordination.b <- ordinate(ps.varstab, "PCoA", "bray")
+ordination.u <- ordinate(ps.rand, "PCoA", "unifrac")
+ordination.w <- ordinate(ps.varstab, "PCoA", "wunifrac")
+  
+  #plotting
+  p1 <-  plot_ordination(ps, ordination.b, type="sample", color="Description", title="Bray-Curtis", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+
+  p2 <-  plot_ordination(ps, ordination.u, type="sample", color="Description", title="UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3)
+  
+  p3 <-  plot_ordination(ps, ordination.w, type="sample", color="Description", title="Weighted UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+  #merge by ggpubr
+  
+  p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "bottom", font.label = list(size = 12, face = "bold", color ="black"))
+  
+p.all
+
+
+```
+
+```{r,fig.height=10, fig.width=12, results=FALSE}
+ordination.b <- ordinate(ps.varstab, "PCoA", "bray")
+
+plot_ordination(ps.varstab, ordination.b, type="Description", color="Description", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+
+```
