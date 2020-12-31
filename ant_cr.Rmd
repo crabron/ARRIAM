@@ -228,13 +228,15 @@ ps.its.c <- prune_samples(sample_data(ps.its)$Site %in% "контроль", ps.i
 ps.its.c <- prune_taxa(taxa_sums(ps.its.c) > 0, ps.its.c) 
 
 
-ps.f <- prune_samples(sample_data(ps.f)$Site != "контроль", ps.f)
-ps.f <- prune_taxa(taxa_sums(ps.f) > 0, ps.f) 
+# ps.f <- prune_samples(sample_data(ps.f)$Site != "контроль", ps.f)
+# ps.f <- prune_taxa(taxa_sums(ps.f) > 0, ps.f) 
 
 
 ps.its.f@tax_table
 ps.its@sam_data
 
+
+ps@sam_data
 ```
 
 ```{r}
@@ -267,8 +269,9 @@ amp.its.f <- phyloseq_to_amp(ps.its.f)
 amp.its.c <- phyloseq_to_amp(ps.its.c)
 
 amp.f.c
-                                                                                 amp.its.c
-ps.its.c@tax_table
+amp.its.c
+
+as.data.frame(ps.its.f@tax_table@.Data)
 ```
 
 ```{r}
@@ -293,13 +296,14 @@ amp_heatmap(amp.its.f,
 ```
 
 ```{r, fig.height=6, fig.width=12}
-a.ph <- amp_heatmap(amp.f, group_by = "Set",tax_show = 10, tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("A") +
+a.16 <- amp_heatmap(amp.f, group_by = "Site",tax_show = 25,  tax_aggregate = "Genus", tax_add = "Class") + theme_bw() + theme(text = element_text(size=12), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("A. прокариоты") + 
   scale_colour_viridis_d(option = "plasma", end = 0.8)
 
-a.gen <- amp_heatmap(amp_oth, group_by = "Set",tax_show = 20, tax_aggregate = "Genus", tax_add = "Class") + theme_bw() + theme(text = element_text(size=12), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("B") + scale_y_discrete(position = "right")+
+
+a.its <- amp_heatmap(amp.its.f, group_by = "Site",tax_show = 25,  tax_aggregate = "Genus", tax_add = "Kingdom") + theme_bw() + theme(text = element_text(size=12), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("В. эукариоты") + scale_y_discrete(position = "right")+
   scale_colour_viridis_d(option = "plasma", end = 0.8)
 
-p.max <- ggarrange(a.ph , a.gen, ncol = 2 , nrow = 1, font.label = list(size = 12, face = "bold", color ="black"))
+p.max <- ggarrange(a.16 , a.its, ncol = 2 , nrow = 1, font.label = list(size = 12, face = "bold", color ="black"))
 p.max
 ```
 
@@ -475,8 +479,86 @@ plot_ordination(ps.varstab.its.f, ordination.b, type="sample", color="Site", tit
 
 ```
 
+```{r}
+as.data.frame(ps.its@sam_data)
+as.data.frame(ps.its@tax_table)
+as.data.frame(ps.its@otu_table)
 
 
+
+
+
+```
+```{r}
+tax_table(ps.its) <- colnames(ps.f@tax_table)
+ps.16its <- merge_phyloseq(ps.f, ps.its)
+
+
+as.data.frame(ps.f@sam_data) %>%  
+  rownames_to_column("ID") %>% 
+  write_tsv(file = "16_map.tsv")
+
+as.data.frame(ps.f@tax_table@.Data) %>%
+  rownames_to_column("ID") %>% 
+  select(ID, everything()) %>% 
+  write_tsv(file = "16_taxa.tsv")
+
+as.data.frame(ps.f@otu_table@.Data) %>%
+  rownames_to_column("ID") %>% 
+  select(ID, everything()) %>% 
+  write_tsv(file = "16_otus.tsv")
+
+as.data.frame(ps.its@sam_data) %>%  
+  rownames_to_column("ID") %>% 
+  write_tsv(file = "its_map.tsv")
+
+as.data.frame(ps.its@tax_table@.Data) %>%
+  rownames_to_column("ID") %>% 
+  select(ID, everything()) %>% 
+  write_tsv(file = "its_taxa.tsv")
+
+as.data.frame(ps.its@otu_table@.Data) %>%
+  rownames_to_column("ID") %>% 
+  select(ID, everything()) %>% 
+  write_tsv(file = "its_otus.tsv")
+              
+
+```
+
+
+
+
+```{r, message=FALSE,echo=TRUE,fig.height=6, fig.width=10}
+library(ggpubr)
+pdd
+
+physeq <- prune_samples(sample_data(ps.16its)$Site != "контроль", ps.16its)
+physeq <- prune_taxa(taxa_sums(physeq) > 0, physeq) 
+
+  
+pd1 <- estimate_richness(physeq, measures=c("Observed", "InvSimpson", "Shannon"))
+
+pd1
+
+pdd  <- pd1 %>% rownames_to_column("Repeat") %>% mutate(Repeat = as.factor(Repeat)) %>% gather(Observed, Shannon, InvSimpson, value = "Index", key = "Type")
+pdd <- cbind(pd1, physeq@sam_data)
+pdd
+p1 <- ggplot(data = pdd, aes(y = Observed, x = Site, fill = Ssu)) + geom_boxplot()  + geom_point(alpha = 0.4, position=position_dodge(width=0.75)) + labs(title = "Observed") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15), axis.text.y = element_text(size = 12)) +  scale_fill_viridis_d(option = "plasma", begin = 0.3, end = 0.9)
+p1
+p2 <- ggplot(data = pdd, aes(y = InvSimpson, x = Site, fill = Ssu)) + geom_boxplot()  + geom_point(alpha = 0.4, position=position_dodge(width=0.75)) + labs(title = "InvSimpson") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15), axis.text.y = element_text(size = 12)) +  scale_fill_viridis_d(option = "plasma", begin = 0.3, end = 0.9)
+p2
+
+p3 <- ggplot(data = pdd, aes(y = Shannon, x = Site, fill = Ssu)) + geom_boxplot()  + geom_point(alpha = 0.4, position=position_dodge(width=0.75)) + labs(title = "Shannon") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15), axis.text.y = element_text(size = 12)) +  scale_fill_viridis_d(option = "plasma", begin = 0.3, end = 0.9)
+ggarrange(p1, p2, p3, nrow = 1 ,label.x = 0.105, ncol = 3, common.legend = TRUE, legend = "bottom") 
+
+p.alpha.Cdt.oo <- alpha.custom(ps.f, arrga = "Observed")
+p.alpha.Cdt.is <- alpha.custom(ps.f, arrga = "Shannon")
+p.alpha.Cdt.pd <- alpha.custom(ps.f, arrga = "InvSimpson")
+
+p1 <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.sh,p.alpha.Cdt.is, p.alpha.Cdt.pd , ncol = 4 ,label.x = 0.105, nrow = 1, common.legend = TRUE) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+p1
+```
 
 
 
