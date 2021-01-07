@@ -356,6 +356,8 @@ plot_ordination(ps, ordination.b, type="sample", color="Site", title="NMDS - Bra
     geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
 
 ```
+
+
 ```{r,fig.height=6, fig.width=10}
 map2 <- ps.f2@sam_data %>% 
   as.data.frame %>% 
@@ -480,6 +482,8 @@ permutest(mod, permutations = 999)
 anova(mod)
 plot(TukeyHSD(mod))
 ```
+
+
 ```{r, message=FALSE,echo=TRUE, fig.height=6, fig.width=9}
 
 amp_heatmap(amp, group_by = "Quarry_or_Benchmark",facet_by = "Soil",tax_show = 10, tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
