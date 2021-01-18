@@ -1,5 +1,11 @@
 ls | grep Abakumov- | xargs cp -t  ~/storage/cryo/in
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/cryo")
+```
+
+
 ```{r}
 setwd("~/storage/cryo")
 path = "in/"
@@ -34,7 +40,7 @@ fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
 fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
 
 plotQualityProfile(fnRs[1:104], aggregate = TRUE)
-length(fnFs)
+list.files()
 ```
 ```{r}
 
@@ -538,7 +544,7 @@ pd1 <- estimate_richness(ps.f.vulk, measures=c("Observed", "InvSimpson", "Shanno
 pdd  <- pd1 %>% rownames_to_column("Repeat") %>% mutate(Repeat = as.factor(Repeat)) %>% gather(Observed, Shannon, InvSimpson, value = "Index", key = "Type")
 pdd <- cbind(pd1, ps.f.vulk@sam_data)
 pdd
-p1 <- ggplot(data = pdd, aes(y = Observed, x = Repeat, group = Ornitogenic)) + geom_boxplot()  + geom_point(alpha = 0.4) + labs(title = "Observed") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15),           axis.text.y = element_text(size = 12)) 
+p1 <- ggplot(data = pdd, aes(y = Observed, x = Repeat, group = Ornitogenic)) + geom_boxplot()  + geom_point(alpha = 0.4) + labs(title = "Observed") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15), axis.text.y = element_text(size = 12)) 
 p1
 p2 <- ggplot(data = pdd, aes(y = InvSimpson, x = id)) + geom_boxplot() + geom_point(alpha = 0.4)  + labs(title = "InvSimpson")   + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15),           axis.text.y = element_text(size = 12)) 
 p2
@@ -577,11 +583,11 @@ phyloseq_to_amp <- function(ps){
     return(amp.ps)
 }
 
-
 amp.vulk <- phyloseq_to_amp(ps.f.vulk)
 amp.vulk
 ```
 ```{r, fig.height=6, fig.width=12}
+
 a.ph <- amp_heatmap(amp_oth, group_by = "Set",tax_show = 10, tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("A") +
   scale_colour_viridis_d(option = "plasma", end = 0.8)
 
@@ -601,6 +607,9 @@ ps.f.oth <- prune_taxa(taxa_sums(ps.f.oth) > 0, ps.f.oth)
 
 ps.f.oth@sam_data
 ```
+
+
+
 ```{r}
 ps_vst <- function(ps){
   diagdds = phyloseq_to_deseq2(ps, ~ Set)                  
@@ -681,11 +690,6 @@ ps.f
 ```
 
 
-
-
-
-
-
 ```{r}
   badTaxa <- taxa_names(subset_taxa(ps.f.cre, Phylum=="Cyanobacteria"))
   ps.f.oth.w.cya <- pop_taxa(ps.f.cre, badTaxa)
@@ -702,7 +706,7 @@ ps.f.oth
   
 ps.f.oth.w.bac
 ps.f.oth
- ps.f.oth.gam
+ps.f.oth.gam
 ```
 
 ```{r}
@@ -759,6 +763,8 @@ des_w_simper <- function(ps, factor){
 
 ```{r, eval=FALSE}
 des.ay <- des_w_simper(ps.f.cre, "Set")
+des.ay
+write_tsv(des.ay, file = "des.sites.cre.tsv")
 des.ay %>% filter(baseMean > 70) %>% arrange(padj)
 
 

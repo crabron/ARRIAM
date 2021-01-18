@@ -379,6 +379,7 @@ colnames(bad_reps) <-c("reps")
 ```{r}
 getwd()
 ```
+
 ```{r}
 require(dada2)
 require(Biostrings)
@@ -721,7 +722,7 @@ amp_merged$metadata
 
 ```{r, message=FALSE,echo=TRUE,fig.height=9, fig.width=20}
 library(ggpubr)
-alpha.custom <- function(ps.f, arrga = "PD"){
+alpha.custom <- function(ps.16its, arrga = "PD"){
   require(picante)
   pd <- pd(ps.f@otu_table@.Data, ps.f@phy_tree)
   

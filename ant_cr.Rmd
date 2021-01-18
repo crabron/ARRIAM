@@ -7,6 +7,7 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/Ant_cr/16S/")
 ```
 
 # the base pipe
@@ -157,11 +158,449 @@ saveRDS(ids.100, file = "~/storage/Ant_cr/16S/ids.100.rds")
 ```
 
 ```{r}
-taxa.rdp
+list.files()
 ```
 
 ```{r, rows.print = 112}
 
-as.data.frame(sample.names)
+taxa <- read.csv("taxa.rdp.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
+
+
+filt.otu <- read.csv("otu_table.txt" , header=TRUE, sep="\t")
+colnames(filt.otu)[1] <- "ID"
+
+
+filt.otu <- column_to_rownames(filt.otu, "ID")
+otus <- as.matrix(filt.otu)
+otus <- t(filt.otu)
+
+site_vector <- c( "контроль", rep("Терга", 5), rep("Бел_Булат", 5), rep("Ливингстон", 5))
+
+map_rude <- data.frame("ID" = colnames(filt.otu)) %>%
+  separate(col = "ID", sep = "\\.", into = c("Aba","c","Ssu", "Num"), remove = FALSE) %>%
+  mutate(Num = as.numeric(Num)) %>% 
+  mutate(Num = replace_na(Num, 0)) %>% 
+  arrange(Num) %>% 
+  select(-Aba, -c) %>% 
+  mutate(Site = as.factor(site_vector)) %>% 
+  column_to_rownames("ID")
+
+map_rude
+arrange(map_rude, Num)
+sort(map_rude$Num)
+
+ps <- phyloseq(otu_table(otus, taxa_are_rows=FALSE), 
+               sample_data(map_rude),
+               tax_table(taxa))
+ps@sam_data
 
 ```
+
+
+```{r}
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+
+
+ps.f <- delete_mit_chl(ps)
+
+ps.f.c <- prune_samples(sample_data(ps.f)$Site %in% "контроль", ps.f)
+ps.f.c <- prune_taxa(taxa_sums(ps.f.c) > 0, ps.f.c) 
+
+ps.its.f <- prune_samples(sample_data(ps.its)$Site != "контроль", ps.its)
+ps.its.f <- prune_taxa(taxa_sums(ps.its.f) > 0, ps.its.f) 
+
+ps.its.c <- prune_samples(sample_data(ps.its)$Site %in% "контроль", ps.its)
+ps.its.c <- prune_taxa(taxa_sums(ps.its.c) > 0, ps.its.c) 
+
+
+# ps.f <- prune_samples(sample_data(ps.f)$Site != "контроль", ps.f)
+# ps.f <- prune_taxa(taxa_sums(ps.f) > 0, ps.f) 
+
+
+ps.its.f@tax_table
+ps.its@sam_data
+
+
+ps@sam_data
+```
+
+```{r}
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata)
+    return(amp.ps)
+}
+```
+
+
+
+```{r}
+amp.f.c <- phyloseq_to_amp(ps.f.c)
+amp.f <- phyloseq_to_amp(ps.f)
+amp.its.f <- phyloseq_to_amp(ps.its.f)
+amp.its.c <- phyloseq_to_amp(ps.its.c)
+
+amp.f.c
+amp.its.c
+
+as.data.frame(ps.its.f@tax_table@.Data)
+```
+
+```{r}
+amp_heatmap(amp.f, 
+        tax_show = 30, group_by = "Site", 
+        tax_aggregate = "Class", 
+        tax_add = "Species") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+amp_heatmap(amp.f.c, 
+        tax_show = 30, 
+        tax_aggregate = "Class", 
+        tax_add = "Species") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, ,fig.height=6, fig.width=6, }
+amp_heatmap(amp.its.f, 
+        tax_show = 30, group_by = "Site", 
+        tax_aggregate = "Genus", 
+        tax_add = "Kingdom") + theme_bw() + theme(text = element_text(size=10), legend.position = "none") + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r, fig.height=6, fig.width=12}
+a.16 <- amp_heatmap(amp.f, group_by = "Site",tax_show = 25,  tax_aggregate = "Genus", tax_add = "Class") + theme_bw() + theme(text = element_text(size=12), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("A. прокариоты") + 
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+
+a.its <- amp_heatmap(amp.its.f, group_by = "Site",tax_show = 25,  tax_aggregate = "Genus", tax_add = "Kingdom") + theme_bw() + theme(text = element_text(size=12), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1)) + ggtitle("В. эукариоты") + scale_y_discrete(position = "right")+
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+p.max <- ggarrange(a.16 , a.its, ncol = 2 , nrow = 1, font.label = list(size = 12, face = "bold", color ="black"))
+p.max
+```
+
+```{r}
+amp_heatmap(amp.its.f, 
+        tax_show = 30, 
+        tax_aggregate = "Class", 
+        tax_add = "Species") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") +     theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+
+```{r, rows.print = 112}
+list.files("../ITS/")
+
+taxa.its <- read.csv("../ITS/taxa.txt" , header=TRUE, sep="\t")
+taxa.its <- column_to_rownames(taxa.its, 'X')
+taxa.its <- as.matrix(taxa.its)
+taxa.its <- taxa.its[,-8]
+paste0(colnames(taxa.its), "----->" , colnames(taxa))
+
+filt.otu.its <- read.csv("../ITS/otu_table.txt" , header=TRUE, sep="\t")
+colnames(filt.otu.its)[1] <- "ID"
+filt.otu.its <- column_to_rownames(filt.otu.its, "ID")
+otus.its <- as.matrix(filt.otu.its)
+otus.its <- t(filt.otu.its)
+
+site_vector <- c( "контроль", rep("Терга", 5), rep("Бел_Булат", 5), rep("Ливингстон", 5))
+
+map_rude <- data.frame("ID" = colnames(filt.otu.its)) %>%
+  separate(col = "ID", sep = "\\.", into = c("Aba","c","Ssu", "Num"), remove = FALSE) %>%
+  mutate(Num = as.numeric(Num)) %>% 
+  mutate(Num = replace_na(Num, 0)) %>% 
+  arrange(Num) %>% 
+  select(-Aba, -c) %>% 
+  mutate(Site = as.factor(site_vector)) %>% 
+  column_to_rownames("ID")
+
+
+
+ps.its <- phyloseq(otu_table(otus.its, taxa_are_rows=FALSE), 
+               sample_data(map_rude.its),
+               tax_table(taxa.its))
+
+
+ps@tax_table
+```
+
+
+
+
+```{r}
+
+ps_vst <- function(ps){
+  diagdds = phyloseq_to_deseq2(ps, ~ Site)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+library(DESeq2)
+ps.varstab.f <- ps_vst(ps.f)
+```
+
+```{r,fig.height=6, fig.width=6}
+ordination.b <- ordinate(ps.varstab.f, "NMDS", "bray")
+
+p.b.16 <-  plot_ordination(ps.varstab.f, ordination.b, type="sample", color="Site", title="A. NMDS - Bray-Curtis - 16S", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm")) +
+    theme(legend.position="bottom") +
+    annotate(geom = 'text', label = 'PERMANOVA p-value - 0.001, R2 - 0.67', size = 4, x = -Inf, y = Inf, hjust = 0, vjust = 1.2) +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+p.b.16
+```
+
+```{r,fig.height=6, fig.width=6}
+ordination.its <- ordinate(ps.varstab.its.f, "NMDS", "bray")
+
+p.b.its <-  plot_ordination(ps.varstab.its.f, ordination.its, type="sample", color="Site", title="B. NMDS - Bray-Curtis - ITS", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm")) +
+    theme(legend.position="bottom") +
+    annotate(geom = 'text', label = 'PERMANOVA p-value - 0.045, R2 - 0.27', size = 4, x = -Inf, y = Inf, hjust = 0, vjust = 1.2) +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+p.b.its
+```
+
+```{r,fig.height=5, fig.width=10}
+library(ggpubr)
+
+ggarrange(p.b.16 , p.b.its , ncol = 2 ,label.x = 0.105, nrow = 1, legend = "right", common.legend = TRUE) 
+
+
+
+
+
+
+
+
+```
+
+
+
+
+
+```{r}
+library(vegan)
+physeq <- ps.f
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis2(dist ~ Site, data = metadata)
+
+ad
+
+```
+
+```{r}
+library(vegan)
+physeq <- ps.its.f
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis2(dist ~ Site, data = metadata)
+
+ad
+
+```
+
+
+
+```{r}
+
+ps_vst <- function(ps){
+  diagdds = phyloseq_to_deseq2(ps, ~ Site)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+library(DESeq2)
+ps.varstab.its.f <- ps_vst(ps.its.f)
+
+```
+
+
+```{r}
+
+ordination.b <- ordinate(ps.varstab.its.f, "NMDS", "bray")
+
+plot_ordination(ps.varstab.its.f, ordination.b, type="sample", color="Site", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm")) +
+    theme(legend.position="bottom") +
+  scale_colour_viridis_d(option = "plasma", end = 0.8)
+
+```
+
+```{r}
+as.data.frame(ps.its@sam_data)
+as.data.frame(ps.its@tax_table)
+as.data.frame(ps.its@otu_table)
+
+
+
+
+
+```
+```{r}
+tax_table(ps.its) <- colnames(ps.f@tax_table)
+ps.16its <- merge_phyloseq(ps.f, ps.its)
+
+
+as.data.frame(ps.f@sam_data) %>%  
+  rownames_to_column("ID") %>% 
+  write_tsv(file = "16_map.tsv")
+
+as.data.frame(ps.f@tax_table@.Data) %>%
+  rownames_to_column("ID") %>% 
+  select(ID, everything()) %>% 
+  write_tsv(file = "16_taxa.tsv")
+
+as.data.frame(ps.f@otu_table@.Data) %>%
+  rownames_to_column("ID") %>% 
+  select(ID, everything()) %>% 
+  write_tsv(file = "16_otus.tsv")
+
+as.data.frame(ps.its@sam_data) %>%  
+  rownames_to_column("ID") %>% 
+  write_tsv(file = "its_map.tsv")
+
+as.data.frame(ps.its@tax_table@.Data) %>%
+  rownames_to_column("ID") %>% 
+  select(ID, everything()) %>% 
+  write_tsv(file = "its_taxa.tsv")
+
+as.data.frame(ps.its@otu_table@.Data) %>%
+  rownames_to_column("ID") %>% 
+  select(ID, everything()) %>% 
+  write_tsv(file = "its_otus.tsv")
+              
+
+```
+
+
+
+
+```{r, message=FALSE,echo=TRUE,fig.height=6, fig.width=10}
+library(ggpubr)
+pdd
+
+physeq <- prune_samples(sample_data(ps.16its)$Site != "контроль", ps.16its)
+physeq <- prune_taxa(taxa_sums(physeq) > 0, physeq) 
+
+  
+pd1 <- estimate_richness(physeq, measures=c("Observed", "InvSimpson", "Shannon"))
+
+pd1
+
+pdd  <- pd1 %>% rownames_to_column("Repeat") %>% mutate(Repeat = as.factor(Repeat)) %>% gather(Observed, Shannon, InvSimpson, value = "Index", key = "Type")
+pdd <- cbind(pd1, physeq@sam_data)
+pdd
+p1 <- ggplot(data = pdd, aes(y = Observed, x = Site, fill = Ssu)) + geom_boxplot()  + geom_point(alpha = 0.4, position=position_dodge(width=0.75)) + labs(title = "Observed") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15), axis.text.y = element_text(size = 12)) +  scale_fill_viridis_d(option = "plasma", begin = 0.3, end = 0.9)
+p1
+p2 <- ggplot(data = pdd, aes(y = InvSimpson, x = Site, fill = Ssu)) + geom_boxplot()  + geom_point(alpha = 0.4, position=position_dodge(width=0.75)) + labs(title = "InvSimpson") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15), axis.text.y = element_text(size = 12)) +  scale_fill_viridis_d(option = "plasma", begin = 0.3, end = 0.9)
+p2
+
+p3 <- ggplot(data = pdd, aes(y = Shannon, x = Site, fill = Ssu)) + geom_boxplot()  + geom_point(alpha = 0.4, position=position_dodge(width=0.75)) + labs(title = "Shannon") + theme_bw() + theme(axis.title.y = element_blank(), axis.title.x = element_blank())+ theme(axis.text.x = element_text(size = 10, angle = 45, vjust = 0.2, hjust=0.15), axis.text.y = element_text(size = 12)) +  scale_fill_viridis_d(option = "plasma", begin = 0.3, end = 0.9)
+ggarrange(p1, p2, p3, nrow = 1 ,label.x = 0.105, ncol = 3, common.legend = TRUE, legend = "bottom") 
+
+p.alpha.Cdt.oo <- alpha.custom(ps.f, arrga = "Observed")
+p.alpha.Cdt.is <- alpha.custom(ps.f, arrga = "Shannon")
+p.alpha.Cdt.pd <- alpha.custom(ps.f, arrga = "InvSimpson")
+
+p1 <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.sh,p.alpha.Cdt.is, p.alpha.Cdt.pd , ncol = 4 ,label.x = 0.105, nrow = 1, common.legend = TRUE) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+p1
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

@@ -4,8 +4,8 @@ library(Biostrings)
 library(seqinr)
 
 mult <- TRUE # TRUE
-setwd("/home/gladkov/storage/cellulolit/its/")
-path <- "raw"
+setwd("/home/gladkov/storage/Ant_cr/ITS/")
+path <- "in"
 # path <- "/home/gladkov/storage/cellulolit/its/"
 path_trein_set <- "/home/gladkov/storage/pipez/data_1/sh_general_release_dynamic_01.12.2017.fasta"
 FWD <- "GCATCGATGAAGAACGCAGC"  ## CHANGE ME to your forward primer sequence
