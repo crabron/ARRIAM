@@ -54,4 +54,31 @@ qiime feature-table summarize \
 
 #    try to use MiSeq/Pilon
 
- bbduk.sh in1=qtrim=r trimq=8 46_S10_L001_R1_001.fastq.gz 46_S10_L001_R2_001.fastq.gz
+bbduk.sh  in1=46_S10_L001_R1_001.fastq.gz in2=46_S10_L001_R2_001.fastq.gz \
+ftl=17 ftr2=2 \
+out1=46_F.fq out2=46_R.fq \
+trimq=10 qtrim=r 
+
+bbmerge.sh in1=46_F.fq in2=46_R.fq out=46_m.fq outu=46_um.fq ihist=ihist_46.txt
+
+minimap2 -ax asm20 consensus.fasta  46_um.fq > 46_m_al.sam 
+
+samtools view -S -b 46_m_al.sam  > 46_m_al.bam
+samtools flagstat 46_m_al.bam
+samtools stats 46_m_al.bam
+samtools index 46_m_al.bam
+samtools sort 46_m_al.sam > 46_m_al_sorted.bam
+samtools index 46_m_al_sorted.bam
+
+
+minimap2 -ax sr consensus.fasta  46_um.fq > 46_m_al_sr.sam
+samtools sort 46_m_al_sr.sam > 46_m_al_sr_sorted.bam
+samtools index 46_m_al_sr_sorted.bbbbbbam
+samtools flagstat 46_m_al_sr_sorted.bam
+
+minimap2 -ax sr consensus.fasta  46_F.fq 46_R.fq > 46_nm_al_sr.sam
+samtools sort 46_nm_al_sr.sam > 46_nm_al_sr_sorted.bam
+samtools index 46_nm_al_sr_sorted.bam
+samtools flagstat 46_nm_al_sr_sorted.bam
+
+infoseq stdin -only -name -length -pgc
