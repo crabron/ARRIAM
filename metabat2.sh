@@ -20,6 +20,7 @@ for filename in *.faa; do
     echo $filename
 done
 
+awk '{s++}END{print s/4}' file.fastq
 
 
  cat ../c1_ann.tsv | cut -f2 | grep  pr_01.gff | awk '{print $1}' | taxonkit --data-dir ~/storage/temp/  -j 50 lineage | taxonkit --data-dir ~/storage/temp/ -j 50 reformat
@@ -49,3 +50,8 @@ qiime feature-table summarize \
 
    unzip -p filtered_table.qza > pathway_abundance.biom
    biom convert -i  pathway_abundance.biom -o pathway_abundance.txt --to-tsv
+
+
+#    try to use MiSeq/Pilon
+
+ bbduk.sh in1=qtrim=r trimq=8 46_S10_L001_R1_001.fastq.gz 46_S10_L001_R2_001.fastq.gz

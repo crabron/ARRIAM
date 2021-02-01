@@ -570,16 +570,22 @@ uni.steppo <- function(some_number){
   return(jacco.mean)
 }
 
-some_ps <- ps.s.bf.57
+some_ps <- ps
+some_ps
 while(which(length(taxa_sums(some_ps)) <= 30)))
-seq.list <- seq(min(taxa_sums(some_ps)), max(taxa_sums(some_ps)), by=10)
-seq.list <- seq(min(taxa_sums(some_ps)), 500, by=10)
+seq.list <- seq(min(taxa_sums(some_ps)), max(taxa_sums(some_ps)), by=40)
+seq.list <- seq(min(taxa_sums(some_ps)), 100, by=1)
+seq.list <- seq(50 , max(taxa_sums(some_ps)), by=50)
+seq.list
 bray.list <- sapply(seq.list, bray.steppo)
 wuni.list <- sapply(seq.list, wuni.steppo)
 uni.list <- sapply(seq.list, uni.steppo)
+par(mfrow=c(3,1)) 
 plot(bray.list)
 plot(wuni.list)
 plot(uni.list)
+
+
 
 require(dplyr)
 require(ggpubr)

@@ -1,0 +1,387 @@
+---
+title: "mal_2020"
+author: "GrGladkov"
+date: "18 01 2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/mal/new_2020/")
+
+```
+
+
+```{r}
+
+list.files(path)
+
+```
+
+
+
+```{r}
+
+# 
+# find /mnt/nas/runs/2017_illumina_1/20170818_MiSeq -regextype posix-extended -regex '^.*S((1[9][6-9])|(2[0-5][0-9])|26[0-5])_.*$' | while read files; do
+#     filename=$(basename $files)
+#     ln -s $files /home/gladkov/storage/mal/raw/$filename
+#     echo Linked $files to /home/gladkov/storage/mal/raw/$filename
+# done
+
+setwd("~/storage/mal/new_2020/")
+path = "../raw"
+path_trein_set = "~/storage/somebases/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.fa"
+name_Brief = "nameBrief.txt"
+
+truncLen = "220,180"
+maxEE = "2,5"
+mult = TRUE
+mlt = NULL
+  require(dada2)
+  require(Biostrings)
+  require(DECIPHER)
+  require(phyloseq)
+  require(seqinr)
+  require(data.table)
+  require(metagMisc)
+  require(tibble)
+
+# docker container run --rm -e AMPLICONLENGTH=[amplicon length] -e FORWARDPRIMERLENGTH=[forward primer length] \
+    # -e REVERSEPRIMERLENGTH=[reverse primer length] -v /path/to/fastqs:/data/input \
+    # -v / figaro
+
+# docker container run --rm -e AMPLICONLENGTH=260 -e FORWARDPRIMERLENGTH=20 \
+# -e REVERSEPRIMERLENGTH=19 -v /home/gladkov/storage/nal/in \
+# -v /home/gladkov/storage/nal figaro
+
+# python3 figaro.py -i /home/gladkov/storage/nal/in -o /home/gladkov/storage/nal -a 260 -f 20 -r 19
+
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq.gz", full.names = TRUE))
+fnFs
+fnRs
+```
+
+
+```{r}
+plotQualityProfile(fnFs, aggregate = TRUE)
+```
+
+
+```{r}
+plotQualityProfile(fnRs, aggregate = TRUE)
+
+```
+
+```{r}  
+
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+filtFs
+filtRs
+
+```
+
+
+### dada func 
+
+```{r}
+
+base_dada_to_table <- function(path = path, fnFs = fnFs, fnRs = fnRs, truncLen=c(240,180), trimLeft=c(19,20), maxEE=c(2,4), pool= TRUE){
+  sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+  filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+  filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+  out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen, trimLeft, maxN=0, maxEE, truncQ = 2 , rm.phix=TRUE, compress=TRUE, multithread=TRUE)
+  errF <- learnErrors(filtFs, multithread=TRUE)
+  errR <- learnErrors(filtRs, multithread=TRUE)
+  derepFs <- derepFastq(filtFs, verbose=TRUE)
+  derepRs <- derepFastq(filtRs, verbose=TRUE)
+  # Name the derep-class objects by the sample names
+  names(derepFs) <- sample.names
+  names(derepRs) <- sample.names
+  dadaFs <- dada(derepFs, err=errF, multithread=TRUE, pool=TRUE)
+  dadaRs <- dada(derepRs, err=errR, multithread=TRUE, pool=TRUE)
+  mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+  seqtab <- makeSequenceTable(mergers)
+  return(seqtab)
+}
+
+  
+```
+
+
+
+
+```{r}
+
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(240,180), trimLeft=c(19,20), maxN=0, maxEE=c(2,4), rm.phix=TRUE, compress=TRUE, multithread=TRUE)
+errF <- learnErrors(filtFs, multithread=TRUE)
+errR <- learnErrors(filtRs, multithread=TRUE)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=TRUE, pool=TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread=TRUE, pool=TRUE)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+seqtab_1 <- seqtab
+  
+```
+
+```{r}
+
+seqtab %>%
+  as.data.frame()
+
+```
+ 
+### run 2 
+  
+find /mnt/nas/runs/2017_illumina_4/2017_illumina_4 -regextype posix-extended -regex '^.*S(49|([5-8][0-9])|(9[0-1]))_.*$' | while read files; do
+  filename=$(basename $files)
+  ln -s $files /home/gladkov/storage/mal/raw2/$filename
+  echo Linked $files to /home/gladkov/storage/mal/raw2/$filename
+done
+  
+  
+```{r}
+
+path2 = "../raw2"
+
+fnFs2 <- sort(list.files(path2, pattern="_R1_001.fastq.gz", full.names = TRUE))
+fnRs2 <- sort(list.files(path2, pattern="_R2_001.fastq.gz", full.names = TRUE))
+fnFs2
+fnRs2
+```
+
+```{r}
+plotQualityProfile(fnFs2, aggregate = TRUE)
+```
+
+
+```{r}
+plotQualityProfile(fnRs2, aggregate = TRUE)
+```
+path = path, fnFs = fnFs, fnRs = fnRs, trimLeft=c(19,20), maxEE=c(2,4), truncLen=c(240,180),  pool= TRUE
+```{r}
+library(dada2)
+path2 <- "../raw2/"
+fnFs2 <- sort(list.files(path2, pattern="_R1_001.fastq.gz", full.names = TRUE))
+fnRs2 <- sort(list.files(path2, pattern="_R2_001.fastq.gz", full.names = TRUE))
+fnFs2
+seqtab_2 <- base_dada_to_table(path = path2, fnFs = fnFs2, fnRs = fnRs2, truncLen=c(180, 150),  trimLeft=c(19,20), maxEE=c(3, 5), pool=TRUE)
+
+```
+
+### run 3
+
+find /mnt/nas/runs/2018_illumina_5/2018_illumina_5 -regextype posix-extended -regex '^.*Maluxa.*.gz'| while read files; do
+  filename=$(basename $files)
+  ln -s $files /home/gladkov/storage/mal/raw3/$filename
+  echo Linked $files to /home/gladkov/storage/mal/raw3/$filename
+done
+
+```{r}
+library(dada2)
+path3 <- "../raw3/"
+fnFs3 <- sort(list.files(path2, pattern="_R1_001.fastq.gz", full.names = TRUE))
+fnRs3 <- sort(list.files(path2, pattern="_R2_001.fastq.gz", full.names = TRUE))
+```
+
+
+```{r}
+plotQualityProfile(fnFs3, aggregate = TRUE)
+```
+```{r}
+plotQualityProfile(fnRs3, aggregate = TRUE)
+```
+
+
+```{r}
+
+seqtab_3 <- base_dada_to_table(path = path3, fnFs = fnFs3, fnRs = fnRs3, truncLen=c(220, 150),  trimLeft=c(19,20), maxEE=c(2, 5), pool=TRUE)
+
+```
+### run 4
+
+find /mnt/nas/runs/2019_illumina_5/ -regextype posix-extended -regex '^.*Abacumov-M-16s.*.gz'| while read files; do
+  filename=$(basename $files)
+  ln -s $files /home/gladkov/storage/mal/raw4/$filename
+  echo Linked $files to /home/gladkov/storage/mal/raw4/$filename
+done
+
+```{r}
+library(dada2)
+path4 <- "../raw4/"
+fnFs4 <- sort(list.files(path4, pattern="_R1_001.fastq.gz", full.names = TRUE))
+fnRs4 <- sort(list.files(path4, pattern="_R2_001.fastq.gz", full.names = TRUE))
+```
+
+
+
+
+```{r}
+plotQualityProfile(fnFs4, aggregate = TRUE)
+```
+
+```{r}
+plotQualityProfile(fnRs4, aggregate = TRUE)
+```
+
+
+```{r}
+plotQualityProfile(fnFs4[1:63], aggregate = FALSE)
+
+
+
+
+```
+
+```{r}
+plotQualityProfile(fnRs4[1:63], aggregate = FALSE)
+
+
+
+
+```
+
+
+```{r}
+
+seqtab_4 <- base_dada_to_table(path = path4, fnFs = fnFs4, fnRs = fnRs4, truncLen=c(150, 200),  trimLeft=c(19,20), maxEE=c(4, 4), pool=TRUE)
+
+```
+
+```{r}
+
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+#dna <- DNAStringSet(briefToSeq)
+#alignment <- AlignSeqs(DNAStringSet(dna), anchor=NA,verbose=FALSE, processors = mlt)
+#writeXStringSet(alignment, file="align.fasta")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+```
+
+sed -i '1s/^/#OTU_ID/' otu_table.txt 
+biom convert -i otu_table.txt -o otu_table.biom --to-hdf5
+qiime tools import \
+--input-path rep_seq.fasta \
+--output-path rep_seq.qza \
+--type 'FeatureData[Sequence]'
+qiime fragment-insertion sepp --i-representative-sequences rep_seq.qza --i-reference-database ~/storage/somebases/sepp-refs-silva-128.qza --o-tree insertion-tree.qza  --o-placements insertion-placements.qza --p-threads 20  
+qiime tools import \
+--input-path otu_table.biom \
+--type 'FeatureTable[Frequency]' \
+--input-format BIOMV210Format \
+--output-path feature-table.qza
+qiime fragment-insertion filter-features \
+--i-table feature-table.qza \
+--i-tree insertion-tree.qza \
+--o-filtered-table filtered_table.qza \
+--o-removed-table removed_table.qza
+unzip -p filtered_table.qza > filtered_table.biom
+biom convert -i  filtered_table.biom -o filtered_table.txt --to-tsv
+sed -i '1d' filtered_table.txt
+unzip -p insertion-tree.qza */data/* > tree.nwk
+
+```{r}
+
+as_tibble(track, rownames = "ID") %>% arrange(nonchim)
+reps <- readFasta("rep_seq.fasta")
+reps[1]$
+
+```
+
+
+```{r}
+
+#some SEPP bash tree magic
+map <- read_tsv("mapping_nalchic_2.tsv")
+map <- column_to_rownames(map, "ID")
+map
+
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
+
+
+filt.otu <- read.csv("otu_table.txt" , header=TRUE, sep="\t")
+filt.otu
+colnames(filt.otu)[1] <- "ID"
+filt.otu <- column_to_rownames(filt.otu, "ID")
+filt.otu
+library(naturalsort)
+filt.otu <- filt.otu[c(naturalsort(colnames(filt.otu)))]
+filt.otu
+colnames(filt.otu) <- rownames(map)
+filt.otu
+# class(filt.otu) <- "numeric"
+
+filt.otu <- as.matrix(filt.otu)
+filt.otu <- t(filt.otu)
+rownames(filt.otu)
+rownames(map)
+
+tree <- read_tree(treefile="tree.nwk")
+
+ps <- phyloseq(otu_table(filt.otu, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa),
+               phy_tree(tree))
+
+
+length(tree$tip.label)
+ps@phy_tree$tip.label
+ps
+
+filt.otu[0,] = rownames(map)
+rownames(filt.otu) == rownames(map)
+
+rownames(taxa)
+
+intersect(rownames(as.data.frame(filt.otu.matrix)), rownames(map)) %>% length()
+```

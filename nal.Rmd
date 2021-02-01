@@ -168,7 +168,6 @@ filt.otu
 colnames(filt.otu)[1] <- "ID"
 filt.otu <- column_to_rownames(filt.otu, "ID")
 filt.otu
-install.packages("naturalsort")
 library(naturalsort)
 filt.otu <- filt.otu[c(naturalsort(colnames(filt.otu)))]
 filt.otu
@@ -359,6 +358,7 @@ plot_ordination(ps, ordination.b, type="sample", color="Site", title="NMDS - Bra
 
 
 ```{r,fig.height=6, fig.width=10}
+
 map2 <- ps.f2@sam_data %>% 
   as.data.frame %>% 
   mutate(
@@ -396,18 +396,28 @@ ps.f2@sam_data
 
 ### Heatmaps with relative abundance by ampvis2 package
 ```{r, message=FALSE,echo=TRUE}
-map3 <- ps.f2@sam_data
-
-ps.f2@sam_data <- map3 %>% 
-  as.data.frame %>% 
+map3 <- data.frame(ps.f2@sam_data)
+sam_data(ps.f2) <- map3 %>% 
+  rownames_to_column("ID") %>% 
     mutate(
     Soil = case_when(
       grepl('meadow_humus', Soil) ~ 'Луговая',
       grepl('Carbonate_chernozem', Soil) ~ 'Чернозём',
       grepl('Forest_gray', Soil) ~ 'Лесная',
     )
-  )
+  ) %>% 
+    mutate(
+    Quarry_or_Benchmark = case_when(
+      grepl('Quarry', What) ~ 'Quarry',
+      grepl('Benchmark', What) ~ 'Benchmark'
+    ) 
+    )%>% 
+      column_to_rownames("ID")
 
+
+data.frame(map3))
+library(tidyverse)
+library(phyloseq)
 
 phyloseq_to_amp <- function(ps){
     require(ampvis2)
@@ -431,7 +441,7 @@ phyloseq_to_amp <- function(ps){
 
 
 amp <- phyloseq_to_amp(ps.f2)
-ps.f2@sam_data$Soil
+ps.f2@sam_data
 ```
 
 ### Split
@@ -486,9 +496,42 @@ plot(TukeyHSD(mod))
 
 ```{r, message=FALSE,echo=TRUE, fig.height=6, fig.width=9}
 
-amp_heatmap(amp, group_by = "Quarry_or_Benchmark",facet_by = "Soil",tax_show = 10, tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
-ps.f2
+amp_heatmap(amp, group_by = "Quarry_or_Benchmark",facet_by = "Soil",tax_show = 30, tax_aggregate = "Genus", tax_add = "Family", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
+amp
 ```
+```{r, message=FALSE, echo=FALSE}
+des_w_simper <- function(ps, factor){
+  require(DESeq2)
+  require(vegan)
+  require(tibble)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  diagdds = DESeq(diagdds)
+  samp <-sample_data(ps)
+  aggdata <- t(aggregate.data.frame(as.data.frame(as.data.frame(t(diagdds@assays@data$mu))), by=list(samp[[factor]]), median))
+  colnames(aggdata) <- aggdata[1,]
+  aggdata <- aggdata[-1,]
+  res = results(diagdds)
+  res.df <- as.data.frame(res)
+  nice <- cbind(res.df, as.data.frame(ps@tax_table@.Data[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])
+} 
+```
+
+```{r, eval=FALSE}
+des.1 <- des_w_simper(ps.1, "Quarry_or_Benchmark")
+des.2 <- des_w_simper(ps.2, "Quarry_or_Benchmark")
+
+des.1 %>% filter(baseMean > 70) %>% arrange(padj)
+des.2 %>% filter(baseMean > 70) %>% arrange(padj)
+
+```
+
+
+
+
 
 ```{r,fig.height=8, fig.width=20, results=FALSE}
 
