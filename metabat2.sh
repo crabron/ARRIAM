@@ -32,7 +32,7 @@ awk '{s++}END{print s/4}' file.fastq
  cat ../c1_ann.tsv | cut -f2 |grep -f /dev/stdin pr_01.gff | awk '{print $1}' | grep -f /dev/stdin ka_01.tsv | cut -f3 | taxonkit --data-dir ~/storage/temp/  -j 50 lineage | taxonkit --data-dir ~/storage/temp/ -j 50 reformat > kid_01.txt
 
 
- checkm ssu_finder consensus.fasta bins/ out/ -x fa -t 20
+checkm ssu_finder consensus.fasta bins/ out/ -x fa -t 20
 
 checkm qa ./out/lineage.ms ./out -o 2 -f res --tab_table -t 20
 
@@ -55,3 +55,6 @@ qiime feature-table summarize \
 #    try to use MiSeq/Pilon
 
  bbduk.sh in1=qtrim=r trimq=8 46_S10_L001_R1_001.fastq.gz 46_S10_L001_R2_001.fastq.gz
+ 
+ 
+ kraken2 --db $KRAKEN2_DB_PATH --threads 50 gbk_concensus/Ng110_gene.faa > Ng110_kraken.tsv
