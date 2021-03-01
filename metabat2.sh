@@ -57,4 +57,4 @@ qiime feature-table summarize \
  bbduk.sh in1=qtrim=r trimq=8 46_S10_L001_R1_001.fastq.gz 46_S10_L001_R2_001.fastq.gz
  
  
- kraken2 --db $KRAKEN2_DB_PATH --threads 50 gbk_concensus/Ng110_gene.faa > Ng110_kraken.tsv
+kraken2 --db $KRAKEN2_DB_PATH --threads 50 gbk_concensus/Ng110_gene.faa > Ng110_kraken.tsv
