@@ -12,8 +12,7 @@ knitr::opts_knit$set(root.dir = "~/storage/nal/")
 
 
 ```{r}
-
-
+list.files()
 ```
 
 
@@ -32,6 +31,12 @@ truncLen = "220,180"
 maxEE = "2,5"
 mult = TRUE
 mlt = NULL
+```
+
+### Import libraries
+
+```{r}
+
   require(dada2)
   require(Biostrings)
   require(DECIPHER)
@@ -40,7 +45,13 @@ mlt = NULL
   require(data.table)
   require(metagMisc)
   require(tibble)
+  require(tidyverse)
 
+```
+
+### quallity plots
+
+```{r}
 # docker container run --rm -e AMPLICONLENGTH=[amplicon length] -e FORWARDPRIMERLENGTH=[forward primer length] \
     # -e REVERSEPRIMERLENGTH=[reverse primer length] -v /path/to/fastqs:/data/input \
     # -v / figaro
@@ -198,6 +209,10 @@ rownames(filt.otu) == rownames(map)
 rownames(taxa)
 
 intersect(rownames(as.data.frame(filt.otu.matrix)), rownames(map)) %>% length()
+
+colnames(filt.otu)
+
+ps
 ```
 
 ```{r, fig.height=12, fig.width=5}
@@ -217,7 +232,34 @@ saveRDS(ps, file = "ps.rds")
 ```
 
 
+
+
+
+### Read some previously generated data
+
+ps, track,etc.
+Add refseq data.
+
 ```{r}
+
+track <- read_tsv("track.tsv")
+ps <- read_rds("ps.rds")
+ps <- merge_phyloseq(ps, refseq(readDNAStringSet("rep_seq.fasta")))
+track %>% rrange(X1)
+
+```
+
+```{r}
+
+ps@sam_data
+
+```
+
+
+
+
+```{r}
+
 pop_taxa <- function(physeq, badTaxa){
   allTaxa = taxa_names(physeq)
   myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
@@ -235,9 +277,25 @@ delete_mit_chl <- function(ps){
 ps.f <- delete_mit_chl(ps)
 ps
 ps.f@sam_data
-```
 
-```{r}
+```
+```{r,fig.height=6, fig.width=10}
+
+pssd2veg <- function(physeq) {
+  sd <- sample_data(physeq)
+  return(as(sd,"data.frame"))
+}
+
+sample_data(ps.f2) <- pssd2veg(ps.f2) %>% 
+  rownames_to_column("ID") %>% 
+    mutate(
+    Quarry_or_Benchmark = case_when(
+      grepl('Quarry', What) ~ 'Quarry',
+      grepl('Benchmark', What) ~ 'Benchmark'
+    ) 
+    ) %>%
+  relocate(Quarry_or_Benchmark, .before = Insolation) %>% 
+      column_to_rownames("ID")
 
 
 ```
@@ -278,6 +336,53 @@ sample_names(ps.f2)
 ps.test <- subset_samples(ps.f2, Site == 'N3-1')
 plot_rich_reads_samlenames_lm(ps.test)
 ```
+
+
+```{r}
+ps.f2@sam_data$Soil
+
+ps.nc <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Forest_gray"), ps.f2)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+ps.nc@sam_data
+```
+
+```{r}
+
+
+```
+
+
+
+```{r}
+ps.f2@sam_data <- map2 
+
+ps.f2@sam_data
+
+p1 <- plot_ordination(ps.varstab, ordination.b, type="sample", color="Soil", title="Типы почвы", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    theme(legend.position="bottom")
+
+p2 <- plot_ordination(ps.varstab, ordination.b, type="sample", color="Quarry_or_Benchmark", title="Повреждённая почва и контроли", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    theme(legend.position="bottom")
+
+ggarrange(p1, p2, nrow = 1, ncol = 2)
+
+```
+
+#### reexport rs
+
+```{r}
+
+ps.f2@sam_data
+
+```
+
 
 #### vst dataset
 
@@ -357,36 +462,6 @@ plot_ordination(ps, ordination.b, type="sample", color="Site", title="NMDS - Bra
 ```
 
 
-```{r,fig.height=6, fig.width=10}
-
-map2 <- ps.f2@sam_data %>% 
-  as.data.frame %>% 
-  mutate(
-    Quarry_or_Benchmark = case_when(
-      grepl('Quarry', What) ~ 'Quarry',
-      grepl('Benchmark', What) ~ 'Benchmark'
-    )
-  )
-
-ps.f2@sam_data <- map2 
-
-ps.f2@sam_data
-
-p1 <- plot_ordination(ps.varstab, ordination.b, type="sample", color="Soil", title="Типы почвы", axes = c(1,2) ) + 
-    theme_bw() + 
-    theme(text = element_text(size = 10)) + 
-    geom_point(size = 3) +
-    theme(legend.position="bottom")
-
-p2 <- plot_ordination(ps.varstab, ordination.b, type="sample", color="Quarry_or_Benchmark", title="Повреждённая почва и контроли", axes = c(1,2) ) + 
-    theme_bw() + 
-    theme(text = element_text(size = 10)) + 
-    geom_point(size = 3) +
-    theme(legend.position="bottom")
-
-ggarrange(p1, p2, nrow = 1, ncol = 2)
-
-```
 
 
 ```{r}
@@ -482,6 +557,7 @@ ad
 ```
 
 ```{r,message=FALSE,echo=TRUE, fig.height=5, fig.width=5.8}
+
 dist <- phyloseq::distance(ps.12, method = "bray")
 groups <- ps.12@sam_data$Soil
 mod <- vegan::betadisper(dist, groups)
@@ -491,6 +567,7 @@ TukeyHSD(mod)
 permutest(mod, permutations = 999)
 anova(mod)
 plot(TukeyHSD(mod))
+
 ```
 
 
@@ -499,6 +576,8 @@ plot(TukeyHSD(mod))
 amp_heatmap(amp, group_by = "Quarry_or_Benchmark",facet_by = "Soil",tax_show = 30, tax_aggregate = "Genus", tax_add = "Family", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none")
 amp
 ```
+
+
 ```{r, message=FALSE, echo=FALSE}
 des_w_simper <- function(ps, factor){
   require(DESeq2)
@@ -521,6 +600,7 @@ des_w_simper <- function(ps, factor){
 ```
 
 ```{r, eval=FALSE}
+
 des.1 <- des_w_simper(ps.1, "Quarry_or_Benchmark")
 des.2 <- des_w_simper(ps.2, "Quarry_or_Benchmark")
 
