@@ -522,7 +522,7 @@ library(grid)
 library(gtable)
 
 gt = ggplot_gtable(ggplot_build(p2))
-gtable_show_layout(gt) # will show you the layout - very handy function
+gtable_show_layout(gt) # will show you the lpuayout - very handy function
 gt # see plot layout in table format
 gt$layout$l[grep('panel-2', gt$layout$name)] # you want to find the column specific to panel-2
 gt$widths[7] = 0.6*gt$widths[7] # in this case it was colmun 7 - reduce the width by a half
