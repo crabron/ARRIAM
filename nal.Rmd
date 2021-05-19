@@ -132,6 +132,7 @@ list.files()
   
   write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
 ```
+
 sed -i '1s/^/#OTU_ID/' otu_table.txt 
 biom convert -i otu_table.txt -o otu_table.biom --to-hdf5
 qiime tools import \
@@ -215,6 +216,7 @@ colnames(filt.otu)
 ps
 ```
 
+
 ```{r, fig.height=12, fig.width=5}
 library(tidyverse)
 library(seqinr)
@@ -227,12 +229,11 @@ sort(getLength(some_rep_fasta), decreasing = TRUE)
 quantile(getLength(some_rep_fasta))
 ```
 
+
 ```{r}
 saveRDS(ps, file = "ps.rds")
+packageVersion("DESeq2")
 ```
-
-
-
 
 
 ### Read some previously generated data
@@ -245,7 +246,32 @@ Add refseq data.
 track <- read_tsv("track.tsv")
 ps <- read_rds("ps.rds")
 ps <- merge_phyloseq(ps, refseq(readDNAStringSet("rep_seq.fasta")))
-track %>% rrange(X1)
+
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl_eu <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Kingdom == "Eukaryota"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, is.na(Phylum)))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+saveRDS(ps.f, file = "ps_f.rds")
+ps
+ps.f
+ps.f <- delete_mit_chl_eu(ps)
+ps.f@tax_table
+
+writeXStringSet(ps.f@refseq, file="ref_filt.fasta")
 
 ```
 
@@ -398,6 +424,7 @@ ps_vst <- function(ps){
   otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
   return(ps.varstab)
 }
+
 library(DESeq2)
 ps.varstab <- ps_vst(ps.f2)
 ps.varstab.f <- ps_vst(ps.f)
@@ -604,8 +631,8 @@ des_w_simper <- function(ps, factor){
 des.1 <- des_w_simper(ps.1, "Quarry_or_Benchmark")
 des.2 <- des_w_simper(ps.2, "Quarry_or_Benchmark")
 
-des.1 %>% filter(baseMean > 70) %>% arrange(padj)
-des.2 %>% filter(baseMean > 70) %>% arrange(padj)
+des.1 %>% filter(baseMean > 50) %>% filter(padj < 0.05) %>% arrange(log2FoldChange)
+des.2 %>% filter(baseMean > 30) %>% arrange(padj)
 
 ```
 
@@ -671,3 +698,595 @@ p1 <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.sh,p.alpha.Cdt.is, p.alpha.Cdt.pd , 
 
 p1
 ```
+
+
+### Process before tree calculated
+
+```{r}
+
+list.files()
+
+
+
+```
+
+### Decontam
+
+Run on all samples
+non norm
+
+```{r}
+
+library(decontam)
+
+conc <- read.csv("concentration_nalchic.csv") %>% select(c("ID", "Site", "final_concentration"))
+sample_data(ps)$conc <- conc$final_concentration
+sample_data(ps)$conc <- sample_data(ps)$conc + 0.000001
+sample_data(ps)$conc
+
+```
+
+```{r}
+
+ps.varstab
+ps
+
+```
+
+
+
+```{r}
+sample_sums(ps)
+
+ps.f <- subset_samples(ps, sample_names(ps) != 'N_95')
+ps.f <- subset_samples(ps.f, sample_names(ps.f) != 'N_89')
+ps.f <- subset_samples(ps.f, sample_names(ps.f) != 'N_96')
+
+ps.vst <- ps_vst(ps.f)
+
+contamdf_ps <- isContaminant(ps.f, method="frequency", conc="conc")
+contamdf_ps_vst <- isContaminant(ps.vst, method="frequency", conc="conc")
+
+contamdf_ps["Seq703",]
+contamdf_ps_vst["Seq703",]
+
+contamdf_ps %>% arrange(p)
+contamdf_ps_vst %>% arrange(p)
+
+```
+
+Seq666
+Seq703
+
+
+```{r}
+table(contamdf_ps$contaminant)
+cont <- contamdf.freq[contamdf_ps$contaminant == "TRUE",] 
+as.data.frame(ps.f@tax_table[rownames(cont),])
+```
+
+Seq1123
+Seq1461
+
+```{r}
+table(contamdf_ps_vst$contaminant)
+cont_vst <- contamdf.freq[contamdf_ps_vst$contaminant == "TRUE",] 
+as.data.frame(ps.f@tax_table[rownames(cont_vst),])
+```
+```{r}
+plot_frequency(ps.f, "Seq703", conc="conc")
+
+```
+
+```{r}
+plot_frequency(ps.vst, "Seq703", conc="conc")
+
+```
+
+
+
+
+
+
+```{r}
+ps <- read_rds("ps_f.rds")
+
+ps_f <- prune_samples(! sample_data(ps)$Soil %in% c("Forest_gray"), ps)
+ps_f  <- prune_taxa(taxa_sums(ps_f) > 0, ps_f)
+
+ps_f
+
+ps_f2_2@sam_data
+```
+
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+
+library(phyloseq)
+library(ggplot2)
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Repeat"] <-unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "N_", 2), function(x) x[[2]]))
+  reads.summary["Site"] <- physeq@sam_data$Site
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + geom_point(aes(y=otus, x=log2(reads), color=Site),size=3) + geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Site, "_", Repeat))) + theme_bw()+
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Site, color=Site),method=lm, se=FALSE, ymin = 1) + scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+  # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  return(p1)
+}
+
+plot_rich_reads_samlenames_lm(ps_f)
+
+ps_f2 <- ps_f
+# ps.f2 <- subset_samples(ps.f, sample_names(ps.f) != 'N_95')
+# ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_96')
+# ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_89')
+ps_f2 <- subset_samples(ps_f2, sample_names(ps_f2) != 'N_31')
+ps_f2 <- subset_samples(ps_f2, sample_names(ps_f2) != 'N_70')
+# ps.f2 <- subset_samples(ps.f2, Site != 'N8-2')
+# ps.f2 <- subset_samples(ps.f2, Site != 'N8-3')
+ps_f2  <- prune_taxa(taxa_sums(ps_f2) > 0, ps_f2)
+plot_rich_reads_samlenames_lm(ps_f2)
+
+# sample_names(ps_f2)
+ps_f2
+ps_f
+# ps.test <- subset_samples(ps.f2, Site == 'N3-1')
+plot_rich_reads_samlenames_lm(ps_f2_2)
+```
+
+
+
+```{r}
+map3 <- data.frame(ps_f2@sam_data)
+sam_data(ps_f2) <- map3 %>% 
+  rownames_to_column("ID") %>% 
+    mutate(
+    Soil = case_when(
+      grepl('meadow_humus', Soil) ~ 'Umbric Gleyic',
+      grepl('Carbonate_chernozem', Soil) ~ 'Calcareous Chernozem'
+    )
+  ) %>% 
+    mutate(
+    Quarry_or_Benchmark = case_when(
+      grepl('Quarry', What) ~ 'Disturbed_soil',
+      grepl('Benchmark', What) ~ 'Control'
+    ) 
+    )%>% 
+    mutate(
+    TH = Humidity/Temperature
+    )  %>% 
+      column_to_rownames("ID")
+
+
+ps_f2@sam_data
+ps.varstab <- ps_vst(ps_f2)
+ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+
+p1 <- plot_ordination(ps.varstab, ordination.b, type="sample", color="Soil", title="Soil types", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    theme(legend.position="bottom", legend.title = element_blank(), legend.text=element_text(size=9))
+
+p2 <- plot_ordination(ps.varstab, ordination.b, type="sample", color="Quarry_or_Benchmark", title="Disturbed soil or control", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    theme(legend.position="bottom", legend.title = element_blank(), legend.text=element_text(size=9))
+
+ggarrange(p1, p2, nrow = 1, ncol = 2)
+
+pH + Temperature + Humidity + P_mg.kg + K_mg.kg + NH4_mg.kg + NO3_mg.kg
+
+```
+
+### Plot of geographic map
+
+```{r}
+
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(tidyverse)
+library(sf)
+library(rgeos)
+library(ggrepel)
+
+world <- ne_countries(scale = "large", returnclass = "sf")
+spdf_france_geounit <- ne_states(geounit = 'russia', returnclass = "sf")
+probdata = tibble(site = c("Quarry on Chernozem", "Quarry on Gleyic"),
+                  longitude = c(43.51137, 43.77252), 
+                  latitude =  c(43.82965, 43.35022), 
+                  xlabel = c(40, 47), 
+                  ylabel = c(44.3, 43))
+
+# rivers <- ne_download(scale = 10, type = 'rivers_lake_centerlines', category = 'physical', returnclass = "sf")
+# lakes <- ne_download(scale = 50, type = 'lakes', category = 'physical', returnclass = "sf")
+
+
+
+ ggplot(data = world) + 
+  geom_sf() +
+  geom_sf(data = spdf_france_geounit, fill="green",  alpha = 0.1 ) +
+  # geom_sf(data = lakes ) +
+  coord_sf(xlim = c(35, 50), ylim = c(40, 50), expand = FALSE) +
+  geom_point(data = probdata, aes(x = longitude, y = latitude), size = 3, 
+  shape = 20, colour = "red") +
+  geom_text(data = probdata, aes(x = xlabel, y = ylabel, label = site), size = 5, colour="red") + 
+  theme_bw() 
+
+
+```
+
+
+```{r,message=FALSE,echo=TRUE, fig.height=5, fig.width=5.8}
+
+dist <- phyloseq::distance(ps_f2, method = "bray")
+groups <- ps_f2@sam_data$Soil
+mod <- vegan::betadisper(dist, groups)
+mod.box <- boxplot(mod)
+TukeyHSD(mod)
+?TukeyHSD.betadisper
+permutest(mod, permutations = 999)
+anova(mod)
+plot(TukeyHSD(mod))
+
+```
+
+```{r, message=FALSE,echo=TRUE, fig.height=7, fig.width=7}
+
+library(phyloseq)             
+library(vegan)
+
+ps.f <- ps_f2_2
+ps.merged <- merge_samples(ps.f, "Site")
+physeq <- ps.merged
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+
+otus.ps.vegan <- veganifyOTU(physeq)
+
+metadata <- as(sample_data(physeq), "data.frame") 
+
+
+vare.cca <- vegan::cca(otus.ps.vegan ~  pH + scaled_temp + P_mg.kg + K_mg.kg + NH4_mg.kg + NO3_mg.kg, data=metadata)
+
+
+kate.ggcca.sites <- function(vare.cca){
+
+require(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+wa <- as.data.frame(vare.cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa))))
+fdat_amazing <- rbind(biplot, wa)
+
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) + 
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  return(p)
+}
+
+kate.ggcca.sites(vare.cca)
+
+
+```
+
+```{r}
+
+library(re)
+
+M <- cor(met)
+corrplot(met, method = "circle")
+
+metadata %>% mutate(So)
+
+met <- ps_f2_2@sam_data
+dummy <- as.numeric(year == 1957)
+dummy <- as.numeric(year == 1957)
+map3 <- data.frame(ps_f2@sam_data)
+met <- map3 %>% mutate(Soil_d = ifelse(Soil == "Umbric Gleyic", 1, 0)) %>%  mutate(Soil_d = ifelse(Soil == "Umbric Gleyic", 1, 0))
+met
+cor.test(met$Temperature, met$Soil_d)
+cor.test(met$pH, met$Soil_d)
+cor.test(met$scaled_temp, met$Humidity)
+cor.test(met$Temperature, met$Humidity)
+
+ps.nc <- prune_samples(sample_data(ps.varstab)$Soil %in% c("Umbric Gleyic"), ps.varstab)
+map3 <- data.frame(ps.nc@sam_data) %>%  mutate(temp = scale(Temperature))
+ps.nc <- merge_phyloseq(ps.nc, sample_data(map3))
+
+
+ps.nc2 <- prune_samples(! sample_data(ps.varstab)$Soil %in% c("Umbric Gleyic"), ps.varstab)
+map3 <- data.frame(ps.nc2@sam_data) %>%  mutate(temp = scale(Temperature))
+ps.nc2 <- merge_phyloseq(ps.nc2, sample_data(map3))
+
+ps_f2_2 <- merge_phyloseq(ps.nc, ps.nc2)
+
+ps_f2_2@sam_data
+
+ps.nc <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+
+filter()
+
+```
+
+
+
+```{r}
+
+map_f3 <- data.frame(ps_f2_2@sam_data)
+map_f3 <- map_f3 %>%  mutate_if(sapply(map_f3, is.character), as.factor)
+ps.nc <- merge_phyloseq(ps_f2_2, sample_data(map_f3))
+ps.merged <- phyloseq::merge_samples(ps.nc, "Site")
+
+
+mutate_if(sapply(iris_char, is.character), as.factor)
+sample_data(ps.nc)$Soil = factor(sample_data(ps.nc)$Soil)
+sample_data(ps.nc)$Quarry_or_Benchmark = factor(sample_data(ps.nc)$Quarry_or_Benchmark)
+sample_data(ps.nc)$Feature = factor(sample_data(ps.nc)$Feature)
+ps.merged <- phyloseq::merge_samples(ps.nc, "Site")
+
+sample_data(ps.merged)$Soil <- factor(sample_data(ps.merged)$Soil, labels=levels(sample_data(ps.nc)$Soil))
+sample_data(ps.merged)$Quarry_or_Benchmark <-  factor(sample_data(ps.merged)$Quarry_or_Benchmark, labels=levels(sample_data(ps.nc)$Quarry_or_Benchmark))
+sample_data(ps.merged)$Feature <- factor(sample_data(ps.merged)$Feature, labels=levels(sample_data(ps.nc)$Feature))
+
+sample_data(ps.merged)
+factor(sample_data(ps.merged)$Soil, levels = levels(sample_data(ps.nc)$Soil))
+sample_data(c)$Soil
+
+map_m <- data.frame(ps.merged@sam_data)
+
+
+ggplot(data=map_m, aes(Soil, temp)) + geom_boxplot(alpha=0.5) + geom_point(alpha=0.5) + theme_bw()
+ggplot(data=map_m, aes(Soil, Temperature)) + geom_boxplot(alpha=0.5) + geom_point(alpha=0.5) + theme_bw()
+ggplot(data=map_m, aes(Soil, scale(Temperature))) + geom_bo
+xplot(alpha=0.5) + geom_point(alpha=0.5) + theme_bw()
+
+```
+
+
+
+
+### CCA statistics
+
+```{r}
+
+anova(vare.cca)
+
+```
+
+#### axis
+
+```{r}
+
+anova(vare.cca, by="terms")
+
+```
+
+#### multicolleniarity 
+
+```{r}
+
+vif.cca(vare.cca)
+
+```
+
+
+
+#### margins
+```{r}
+
+anova(vare.cca, by="mar")
+
+```
+
+```{r, message=FALSE,echo=TRUE, fig.height=7, fig.width=7}
+
+library(phyloseq)             
+library(vegan)
+
+ps.f <- ps_f2_2
+ps.merged <- merge_samples(ps.f, "Site")
+physeq <- ps.merged
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+
+otus.ps.vegan <- veganifyOTU(physeq)
+
+metadata <- as(sample_data(physeq), "data.frame") 
+
+
+rda <- vegan::rda(otus.ps.vegan ~  pH + scaled_temp + P_mg.kg + K_mg.kg + NH4_mg.kg + NO3_mg.kg, data=metadata)
+
+
+kate.ggcca.sites <- function(vare.cca){
+
+require(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+wa <- as.data.frame(vare.cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa))))
+fdat_amazing <- rbind(biplot, wa)
+
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) + 
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  return(p)
+}
+
+kate.ggcca.sites(rda)
+
+metadata
+
+```
+
+### NMDS of filtered phyloseq
+
+```{r, fig.height=10, fig.width=12}
+
+ordination.b <- ordinate(ps_f2_2, "NMDS", "bray")
+
+  #plotting
+plot_ordination(ps_f2_2, ordination.b, type="sample", color="NH4_mg.kg", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+
+```
+```{r, fig.height=6, fig.width=7}
+plot_ordination(ps_f2_2, ordination.b, type="sample", color="temp", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+```
+
+
+```{r, fig.height=6, fig.width=7}
+plot_ordination(ps_f2_2, ordination.b, type="sample", color="K_mg.kg", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+```
+
+```{r, fig.height=6, fig.width=7}
+plot_ordination(ps_f2_2, ordination.b, type="sample", color="pH", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+```
+
+
+
+```{r}
+
+ps_f2_2@sam_data
+
+```
+```{r}
+ps.merged@sam_data
+```
+
+```{r, fig.height=12, fig.width=6}
+ps.merged@sam_data
+
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+ps.n4 <- prune_samples(sample_data(ps_f2_2)$Site %in% c("N4-1", 	"N4-2"), ps_f2_2)
+ps.n4  <- prune_taxa(taxa_sums(ps.n4) > 0, ps.n4)
+
+amp.n4 <- phyloseq_to_amp(ps.n4)
+ps.n4@otu_table[,1]
+amp_heatmap(amp.n4, tax_show = 40, group_by = "Site", tax_aggregate = "Genus", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+```
+```{r}
+
+ps.n4 <- prune_samples(sample_data(ps_f2_2)$Site %in% c("N4-1", 	"N4-2"), ps.f2)
+ps.n4  <- prune_taxa(taxa_sums(ps.n4) > 0, ps.n4)
+
+ps.f2
+
+```
+
+
+```{r}
+
+des_w_simper <- function(ps, factor){
+  require(DESeq2)
+  require(vegan)
+  require(tibble)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  diagdds = DESeq(diagdds)
+  samp <-sample_data(ps)
+  aggdata <- t(aggregate.data.frame(as.data.frame(as.data.frame(t(diagdds@assays@data$mu))), by=list(samp[[factor]]), median))
+  colnames(aggdata) <- aggdata[1,]
+  aggdata <- aggdata[-1,]
+  res = results(diagdds)
+  res.df <- as.data.frame(res)
+  nice <- cbind(res.df, as.data.frame(ps@tax_table@.Data[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])
+} 
+
+
+ds.n4 <- des_w_simper(ps.n4, "Site")
+
+ds.n4 %>% arrange(padj)
+
+
+library(vegan)
+physeq <- ps.n4
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis(dist ~ Site, data = metadata, permutations = 9999)
+
+ad
+
+```
+
+```{r,  fig.height=10, fig.width=12}
+
+ps.sseno <- prune_samples(sample_data(ps.f2)$Feature %in% "cane_bush", ps.f2)
+ps.sseno  <- prune_taxa(taxa_sums(ps.sseno) > 0, ps.sseno)
+
+ps.first <- prune_samples(sample_data(ps.f2)$Soil %in% "Umbric Gleyic", ps.f2)
+ps.first <- prune_taxa(taxa_sums(ps.first) > 0, ps.first)
+
+amp.sseno <- phyloseq_to_amp(ps.first)
+
+amp_heatmap(amp.sseno, tax_show = 30, group_by = "Site", tax_aggregate = "Family", tax_class = "Proteobacteria", tax_add = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+```
+

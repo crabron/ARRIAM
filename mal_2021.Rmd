@@ -63,6 +63,7 @@ mlt = NULL
 
 fnFs <- sort(list.files(path, pattern="_R1_001.fastq.gz", full.names = TRUE))
 fnRs <- sort(list.files(path, pattern="_R2_001.fastq.gz", full.names = TRUE))
+
 fnFs
 fnRs
 ```
@@ -241,16 +242,10 @@ plotQualityProfile(fnRs4, aggregate = TRUE)
 ```{r}
 plotQualityProfile(fnFs4[1:63], aggregate = FALSE)
 
-
-
-
 ```
 
 ```{r}
 plotQualityProfile(fnRs4[1:63], aggregate = FALSE)
-
-
-
 
 ```
 
@@ -306,6 +301,7 @@ write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
 
 ```
 
+
 sed -i '1s/^/#OTU_ID/' otu_table.txt 
 biom convert -i otu_table.txt -o otu_table.biom --to-hdf5
 qiime tools import \
@@ -327,6 +323,7 @@ unzip -p filtered_table.qza > filtered_table.biom
 biom convert -i  filtered_table.biom -o filtered_table.txt --to-tsv
 sed -i '1d' filtered_table.txt
 unzip -p insertion-tree.qza */data/* > tree.nwk
+
 
 ```{r}
 

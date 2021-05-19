@@ -1,0 +1,239 @@
+---
+title: "yam"
+author: "GrGladkov"
+date: "4/5/2021"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/yam")
+```
+
+```{r}
+
+# 
+# find /mnt/nas/runs/2017_illumina_1/20170818_MiSeq -regextype posix-extended -regex '^.*S((1[9][6-9])|(2[0-5][0-9])|26[0-5])_.*$' | while read files; do
+#     filename=$(basename $files)
+#     ln -s $files /home/gladkov/storage/mal/raw/$filename
+#     echo Linked $files to /home/gladkov/storage/mal/raw/$filename
+# done
+
+setwd("~/storage/yam")
+path = "in"
+path_trein_set = "~/storage/somebases/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.fa"
+name_Brief = "nameBrief.txt"
+
+truncLen = "220,180"
+maxEE = "2,5"
+mult = TRUE
+mlt = NULL
+  require(dada2)
+  require(Biostrings)
+  require(DECIPHER)
+  require(phyloseq)
+  require(seqinr)
+  require(data.table)
+  require(metagMisc)
+  require(tibble)
+
+# docker container run --rm -e AMPLICONLENGTH=[amplicon length] -e FORWARDPRIMERLENGTH=[forward primer length] \
+    # -e REVERSEPRIMERLENGTH=[reverse primer length] -v /path/to/fastqs:/data/input \
+    # -v / figaro
+
+# docker container run --rm -e AMPLICONLENGTH=260 -e FORWARDPRIMERLENGTH=20 \
+# -e REVERSEPRIMERLENGTH=19 -v /home/gladkov/storage/nal/in \
+# -v /home/gladkov/storage/nal figaro
+
+# python3 figaro.py -i /home/gladkov/storage/nal/in -o /home/gladkov/storage/nal -a 260 -f 20 -r 19
+
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq.gz", full.names = TRUE))
+
+fnFs
+fnRs
+
+```
+
+
+```{r}
+
+fnFs <- sort(list.files(pattern="nan_test.fastq", full.names = TRUE))
+fnFs
+plotQualityProfile(fnFs, aggregate = TRUE)
+
+```
+
+
+```{r}
+plotQualityProfile(fnFs, aggregate = TRUE)
+```
+
+
+```{r}
+
+plotQualityProfile(fnRs, aggregate = TRUE)
+
+```
+
+
+```{r}
+
+plotQualityProfile(fnFs[87])
+
+```
+
+
+
+```{r}
+
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1))
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(240,180), trimLeft=c(19,20), maxN=0, maxEE=c(2,5), rm.phix=TRUE, compress=TRUE, multithread=TRUE)
+errF <- learnErrors(filtFs, multithread=TRUE)
+errR <- learnErrors(filtRs, multithread=TRUE)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=TRUE, pool=TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread=TRUE, pool=TRUE)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+library(tidyverse)
+track %>% as.data.frame() %>% arrange(input)
+track %>% as.data.frame()
+sample_names <- rownames(track)
+sample_names
+```
+
+
+```{r}
+
+mapp_wrum_zhena <- read_xlsx("yamao_meta_ill2.xlsx")
+mapp_wrum_zhena$No <- as.character(mapp_wrum_zhena$No)
+mapp_wrum_zhena <- mapp_wrum_zhena %>% 
+  rowwise() %>% 
+  mutate(No = paste0("y", No, collapse = "")) %>% 
+  column_to_rownames("No")
+
+otus <- read.csv("otu_table.txt" , header=TRUE, sep="\t") %>% 
+  column_to_rownames("X") %>% 
+  as.matrix()
+
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t") %>% 
+  column_to_rownames("X") %>% as.matrix()
+
+ps <- phyloseq(otu_table(t(otus), taxa_are_rows=FALSE), 
+               sample_data(mapp_wrum_zhena),
+               tax_table(taxa))
+
+ps
+
+# write.table(mapp_wrum_zhena, file="amazinf")
+```
+
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+
+library(phyloseq)
+library(ggplot2)
+
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["ID"] <- physeq@sam_data$ID
+  reads.summary["Repeat"] <- physeq@sam_data$Repeat
+  reads.summary["Type"] <- physeq@sam_data$Type
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + geom_point(aes(y=otus, x=log2(reads), color=Type),size=2.5) + geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Type, "_", ID)),size=2.5) + theme_bw()+
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Type, color=Type),method=lm, se=FALSE, ymin = 1) + scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+  # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  return(p1)
+}
+
+plot_rich_reads_samlenames_lm(ps)
+
+```
+
+
+
+
+```{r}
+
+
+ps@sam_data
+ordination.b.p <- phyloseq::ordinate(ps, "PCoA", "bray")
+
+plot_ordination(ps, ordination.b.p , type="sample", color="Type", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    theme(legend.position="bottom")
+
+```
+
+
+
+```{r}
+
+ps.buff <- prune_samples(sample_data(ps)$Geo %in% c("Lab"), ps)
+ps.buff  <- prune_taxa(taxa_sums(ps.buff) > 0, ps.buff)
+taxa_df <- ps.buff@tax_table %>% as.data.frame()
+c(ps.buff@otu_table)
+taxa_df %>% mutate(sum_reads = c(ps.buff@otu_table)) %>% arrange(sum_reads)
+
+```
+
+
+
+```{r}
+
+
+
+```
+
+
+
+
