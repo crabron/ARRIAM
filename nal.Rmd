@@ -37,15 +37,15 @@ mlt = NULL
 
 ```{r}
 
-  require(dada2)
-  require(Biostrings)
-  require(DECIPHER)
-  require(phyloseq)
-  require(seqinr)
-  require(data.table)
-  require(metagMisc)
-  require(tibble)
-  require(tidyverse)
+require(dada2)
+require(Biostrings)
+require(DECIPHER)
+require(phyloseq)
+require(seqinr)
+require(data.table)
+require(metagMisc)
+require(tibble)
+require(tidyverse)
 
 ```
 
@@ -73,64 +73,66 @@ list.files()
 ```
 
 
-```{r}  
-  sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
-  on.exit()
-  filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
-  filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+```{r} 
+
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+on.exit()
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(185,185), trimLeft=20, maxN=0, maxEE=c(6,8), rm.phix=TRUE, compress=TRUE, multithread=mult)
+errF <- learnErrors(filtFs, multithread=mult)
+errR <- learnErrors(filtRs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult, pool=FALSE)
+dadaRs <- dada(derepRs, err=errR, multithread=mult, pool=FALSE)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+#dna <- DNAStringSet(briefToSeq)
+#alignment <- AlignSeqs(DNAStringSet(dna), anchor=NA,verbose=FALSE, processors = mlt)
+#writeXStringSet(alignment, file="align.fasta")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
   
-  out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(185,185), trimLeft=20, maxN=0, maxEE=c(6,8), rm.phix=TRUE, compress=TRUE, multithread=mult)
-  errF <- learnErrors(filtFs, multithread=mult)
-  errR <- learnErrors(filtRs, multithread=mult)
-  derepFs <- derepFastq(filtFs, verbose=TRUE)
-  derepRs <- derepFastq(filtRs, verbose=TRUE)
-  # Name the derep-class objects by the sample names
-  names(derepFs) <- sample.names
-  names(derepRs) <- sample.names
-  dadaFs <- dada(derepFs, err=errF, multithread=mult, pool=FALSE)
-  dadaRs <- dada(derepRs, err=errR, multithread=mult, pool=FALSE)
-  mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
-  seqtab <- makeSequenceTable(mergers)
-  dim(seqtab)
-  table(nchar(getSequences(seqtab)))
-  getN <- function(x) sum(getUniques(x))
-  seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
-  
-  
-  briefToSeq <- colnames(seqtab.nochim)
-  names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
-  st.brief <- seqtab.nochim
-  colnames(st.brief) <- names(briefToSeq) 
-  
-  write.table(briefToSeq, file = name_Brief, sep = "\t")
-  
-  #dna <- DNAStringSet(briefToSeq)
-  #alignment <- AlignSeqs(DNAStringSet(dna), anchor=NA,verbose=FALSE, processors = mlt)
-  #writeXStringSet(alignment, file="align.fasta")
-  
-  taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
-  taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
-  rownames(taxa.dada2.species) <- rownames(briefToSeq)
-  briefToSeq.df <- data.frame(briefToSeq)
-  rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
-  rownames(taxa.dada2) <- rownames(taxa.dada2.species)
-  taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
-  colnames(taxa)[7] <- "Species"
-  
-  getN <- function(x) sum(getUniques(x))
-  track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
-  colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
-  rownames(track) <- sample.names
-  write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
-  
-  st.brief.t.df <- data.frame(t(st.brief))
-  write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
-  
-  briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
-  briefToSeq.names <- as.list(rownames(briefToSeq.df))
-  write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
-  
-  write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
 ```
 
 sed -i '1s/^/#OTU_ID/' otu_table.txt 
@@ -157,9 +159,11 @@ unzip -p insertion-tree.qza */data/* > tree.nwk
 
 
 ```{r}
+
 as_tibble(track, rownames = "ID") %>% arrange(nonchim)
 reps <- readFasta("rep_seq.fasta")
-reps[1]$
+
+  
 ```
 
 
@@ -167,7 +171,9 @@ reps[1]$
 
 #some SEPP bash tree magic
 map <- read_tsv("mapping_nalchic_2.tsv")
+map
 map <- column_to_rownames(map, "ID")
+
 map
 
 taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
@@ -214,6 +220,7 @@ intersect(rownames(as.data.frame(filt.otu.matrix)), rownames(map)) %>% length()
 colnames(filt.otu)
 
 ps
+
 ```
 
 
@@ -227,6 +234,7 @@ d
 sort(getLength(some_rep_fasta), decreasing = TRUE)
 (getLength(some_rep_fasta), decreasing = TRUE)
 quantile(getLength(some_rep_fasta))
+
 ```
 
 
@@ -328,6 +336,7 @@ sample_data(ps.f2) <- pssd2veg(ps.f2) %>%
 
 ### Richness/depth correlation.
 ```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+
 library(phyloseq)
 library(ggplot2)
 plot_rich_reads_samlenames_lm <- function(physeq){
@@ -339,8 +348,12 @@ plot_rich_reads_samlenames_lm <- function(physeq){
   reads.summary["Site"] <- physeq@sam_data$Site
   library(ggrepel)
   require(ggforce)
-  p1 <- ggplot(data=reads.summary) + geom_point(aes(y=otus, x=log2(reads), color=Site),size=3) + geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Site, "_", Repeat))) + theme_bw()+
-    geom_smooth(aes(y=otus, x=log2(reads), fill=Site, color=Site),method=lm, se=FALSE, ymin = 1) + scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+  p1 <- ggplot(data=reads.summary) + 
+    geom_point(aes(y=otus, x=log2(reads), color=Site),size=3) + 
+    geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Site, "_", Repeat))) + 
+    theme_bw()+
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Site, color=Site),method=lm, se=FALSE, ymin = 1) + 
+    scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
   # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
   
   return(p1)
@@ -361,20 +374,25 @@ sample_names(ps.f2)
 
 ps.test <- subset_samples(ps.f2, Site == 'N3-1')
 plot_rich_reads_samlenames_lm(ps.test)
+
 ```
 
 
 ```{r}
+
 ps.f2@sam_data$Soil
 
 ps.nc <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Forest_gray"), ps.f2)
 ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
 
 ps.nc@sam_data
+
 ```
 
 ```{r}
 
+amp <- phyloseq_to_amp(ps_f)
+amp
 
 ```
 
@@ -407,6 +425,14 @@ ggarrange(p1, p2, nrow = 1, ncol = 2)
 
 ps.f2@sam_data
 
+ps.nc <- prune_samples(! sample_data(ps_f2)$Soil %in% c("Carbonate_chernozem"), ps_f2)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+ps.сc <- prune_samples(sample_data(ps_f2)$Soil %in% c("Carbonate_chernozem"), ps_f2)
+ps.сc  <- prune_taxa(taxa_sums(ps.сc) > 0, ps.сc)
+
+ps.nc@sam_data
+
 ```
 
 
@@ -426,13 +452,18 @@ ps_vst <- function(ps){
 }
 
 library(DESeq2)
+
+ps_var <- ps_vst(ps_f2)
+
 ps.varstab <- ps_vst(ps.f2)
 ps.varstab.f <- ps_vst(ps.f)
 as.data.frame(ps.varstab.f@otu_table)
 
 ```
 
+
 ```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=20, results=FALSE, fig.keep='all'}
+
 beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", color="Description"){
   require(phyloseq)
   require(ggplot2)
@@ -473,12 +504,14 @@ beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", color="D
 
 p.beta <- beta_custom_norm_NMDS_elli(ps.f2)
 p.beta
+
 ```
 
 
 
-```{r,fig.height=10, fig.width=12}
-ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+```{r,fig.height=7, fig.width=8}
+ordination.b <- ordinate(ps_var, "NMDS", "bray")
+ps_var@sam_data
 
 plot_ordination(ps, ordination.b, type="sample", color="Site", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
     theme_bw() + 
@@ -498,6 +531,7 @@ ps.f2@sam_data
 
 ### Heatmaps with relative abundance by ampvis2 package
 ```{r, message=FALSE,echo=TRUE}
+
 map3 <- data.frame(ps.f2@sam_data)
 sam_data(ps.f2) <- map3 %>% 
   rownames_to_column("ID") %>% 
@@ -549,6 +583,7 @@ ps.f2@sam_data
 ### Split
 
 ```{r}
+
 ps.1 <- prune_samples(sample_data(ps.f2)$Soil %in% c("Луговая"),ps.f2)
 ps.1  <- prune_taxa(taxa_sums(ps.1) > 0, ps.1)
 
@@ -558,12 +593,41 @@ ps.2  <- prune_taxa(taxa_sums(ps.2) > 0, ps.2)
 ps.12 <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Лесная"),ps.f2)
 ps.12  <- prune_taxa(taxa_sums(ps.12) > 0, ps.12)
 
-ps.12@sam_data
+ps.nc <- prune_samples(! sample_data(ps_f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+ps.cc <- prune_samples(sample_data(ps_f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
+ps.cc  <- prune_taxa(taxa_sums(ps.cc) > 0, ps.cc)
+
+ps_f2@sam_data
 ```
 
+### heatmappa
+
+```{r, fig.height=10, fig.width=12}
+
+amp_heatmap(amp, tax_show = 40, group_by = "What", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+```
+
+```{r, fig.height=7, fig.width=8}
+
+amp_heatmap(amp, tax_show = 15, group_by = "What", tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+```
+
+```{r, fig.height=10, fig.width=12}
+
+amp_heatmap(amp, tax_show = 30, group_by = "What", tax_aggregate = "Family", tax_class = "Proteobacteria", tax_add = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+```
+
+
+
 ```{r}
+
 library(vegan)
-physeq <- ps.1
+physeq <- ps.nc
 dist <- phyloseq::distance(physeq, "bray")
 metadata <- as(sample_data(physeq@sam_data), "data.frame")
 ad <- adonis2(dist ~ Quarry_or_Benchmark, data = metadata)
@@ -573,8 +637,9 @@ ad
 ```
 
 ```{r}
+
 library(vegan)
-physeq <- ps.2
+physeq <- ps.cc
 dist <- phyloseq::distance(physeq, "bray")
 metadata <- as(sample_data(physeq@sam_data), "data.frame")
 ad <- adonis2(dist ~ Quarry_or_Benchmark, data = metadata)
@@ -626,13 +691,20 @@ des_w_simper <- function(ps, factor){
 } 
 ```
 
+### Amasing DESeq
+
+
 ```{r, eval=FALSE}
 
-des.1 <- des_w_simper(ps.1, "Quarry_or_Benchmark")
-des.2 <- des_w_simper(ps.2, "Quarry_or_Benchmark")
+des.nc <- des_w_simper(ps.nc, "Quarry_or_Benchmark")
+des.cc <- des_w_simper(ps.cc, "Quarry_or_Benchmark")
 
-des.1 %>% filter(baseMean > 50) %>% filter(padj < 0.05) %>% arrange(log2FoldChange)
-des.2 %>% filter(baseMean > 30) %>% arrange(padj)
+des.nc.filt <- des.nc %>% filter(baseMean > 30) %>% filter(padj < 0.05) %>% arrange(log2FoldChange)
+des.cc.filt <- des.cc %>% filter(baseMean > 10) %>% filter(padj < 0.05) %>% arrange(log2FoldChange)
+
+
+write.table(des.nc.filt, file = "des_nc_filt.tsv", sep= "\t", col.names = NA, quote=FALSE)
+write.table(des.cc.filt, file = "des_cc_filt.tsv", sep= "\t", col.names = NA, quote=FALSE)
 
 ```
 
@@ -661,6 +733,8 @@ ordination.w <- ordinate(ps.varstab, "PCoA", "wunifrac")
   
   #merge by ggpubr
   
+  
+  
   p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "bottom", font.label = list(size = 12, face = "bold", color ="black"))
   
 p.all
@@ -669,9 +743,9 @@ ps.varstab@sam_data$Soil
 ```
 
 ```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=18}
+
 library(ggpubr)
-pdd
-  
+
 pd1 <- estimate_richness(ps.f2, measures=c("Observed", "InvSimpson", "Shannon"))
 
 pdd  <- pd1 %>% rownames_to_column("Site") %>% mutate(Site = as.factor(Site)) %>% gather(Observed, Shannon, InvSimpson, value = "Index", key = "Type")
@@ -773,6 +847,9 @@ table(contamdf_ps_vst$contaminant)
 cont_vst <- contamdf.freq[contamdf_ps_vst$contaminant == "TRUE",] 
 as.data.frame(ps.f@tax_table[rownames(cont_vst),])
 ```
+
+
+
 ```{r}
 plot_frequency(ps.f, "Seq703", conc="conc")
 
@@ -783,20 +860,116 @@ plot_frequency(ps.vst, "Seq703", conc="conc")
 
 ```
 
+### read new mapping
+
+```{r}
+
+map <- read_tsv("mapping_nalchic_new.tsv", 
+                col_types = cols(
+                  pH = col_character()
+                )
+              )
+map <- column_to_rownames(map, "Sample")
+ps <- read_rds("ps_f.rds")
+site_column <- ps@sam_data %>% 
+  as.data.frame() %>% 
+  pull('Site')
+map <- map %>% 
+  mutate(Type = str_replace(Type, " /", "/")) %>% 
+  mutate(`Corg,_%` = str_replace(`Corg,_%`, ",", ".")) %>%
+  mutate(`NO3_mg/kg` = str_replace(`NO3_mg/kg` , "," , ".")) %>% 
+  mutate(pH = str_replace(pH, ",", ".")) %>% 
+  mutate(final_concentration = str_replace(final_concentration, ",", ".")) %>% 
+  mutate(pH = as.numeric(pH)) %>% 
+  mutate(final_concentration = as.numeric(final_concentration)) %>% 
+  mutate(`NO3_mg/kg` = as.numeric(`NO3_mg/kg`)) %>% 
+  mutate(`Corg,_%` = as.numeric(`Corg,_%`)) %>% 
+  mutate(
+  Quarry_or_Benchmark = case_when(
+    grepl('Quarry', What) ~ 'Quarry',
+    grepl('Benchmark', What) ~ 'Benchmark'
+  ) 
+  ) %>%
+  relocate(Quarry_or_Benchmark, .before = Insolation) %>% 
+  mutate(Repeat = site_column) %>% 
+  relocate(Repeat, .after = Site)
+
+map <- map %>%  mutate_if(sapply(map, is.character), as.factor)
+map
+
+ps.nc <- prune_samples(sample_data(ps.varstab)$Soil %in% c("Umbric Gleyic"), ps.varstab)
+map3 <- data.frame(ps.nc@sam_data) %>%  mutate(temp = scale(Temperature))
+ps.nc <- merge_phyloseq(ps.nc, sample_data(map3))
+
+
+ps.nc2 <- prune_samples(! sample_data(ps.varstab)$Soil %in% c("Umbric Gleyic"), ps.varstab)
+map3 <- data.frame(ps.nc2@sam_data) %>%  mutate(temp = scale(Temperature))
+ps.nc2 <- merge_phyloseq(ps.nc2, sample_data(map3))
+ps_f2_2 <- merge_phyloseq(ps.nc, ps.nc2)
+ps_f2_2@sam_data
+ps.nc <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+
+pssd2veg <- function(physeq) {
+  sd <- sample_data(physeq)
+  return(as(sd,"data.frame"))
+}
+
+sample_data(ps.f2) <- pssd2veg(ps.f2) %>% 
+  rownames_to_column("ID") %>% 
+    mutate(
+    Quarry_or_Benchmark = case_when(
+      grepl('Quarry', What) ~ 'Quarry',
+      grepl('Benchmark', What) ~ 'Benchmark'
+    ) 
+    ) %>%
+  relocate(Quarry_or_Benchmark, .before = Insolation) %>% 
+      column_to_rownames("Sample")
+
+ps <- read_rds("ps_f.rds")
+ps
+
+
+map_f3 <- data.frame(ps_f2_2@sam_data)
+map_f3 <- map_f3 %>%  mutate_if(sapply(map_f3, is.character), as.factor)
+ps.nc <- merge_phyloseq(ps_f2_2, sample_data(map_f3))
+ps.merged <- phyloseq::merge_samples(ps.nc, "Site")
 
 
 
+sample_data(ps.nc)$Quarry_or_Benchmark = factor(sample_data(ps.nc)$Quarry_or_Benchmark)
+sample_data(ps.nc)$Feature = factor(sample_data(ps.nc)$Feature)
+ps.merged <- phyloseq::merge_samples(ps.nc, "Site")
+
+sample_data(ps.merged)$Soil <- factor(sample_data(ps.merged)$Soil, labels=levels(sample_data(ps.nc)$Soil))
+sample_data(ps.merged)$Quarry_or_Benchmark <-  factor(sample_data(ps.merged)$Quarry_or_Benchmark, labels=levels(sample_data(ps.nc)$Quarry_or_Benchmark))
+sample_data(ps.merged)$Feature <- factor(sample_data(ps.merged)$Feature, labels=levels(sample_data(ps.nc)$Feature))
+
+sample_data(ps.merged)
+factor(sample_data(ps.merged)$Soil, levels = levels(sample_data(ps.nc)$Soil))
+sample_data(c)$Soil
+
+```
+
+### Import actual phyloseq rds
 
 
 ```{r}
+
 ps <- read_rds("ps_f.rds")
+ps@sam_data
+
 
 ps_f <- prune_samples(! sample_data(ps)$Soil %in% c("Forest_gray"), ps)
 ps_f  <- prune_taxa(taxa_sums(ps_f) > 0, ps_f)
 
+ps
 ps_f
+list.files()
 
-ps_f2_2@sam_data
+as.data.frame(ps_f@sam_data)
+
 ```
 
 
@@ -804,6 +977,7 @@ ps_f2_2@sam_data
 
 library(phyloseq)
 library(ggplot2)
+
 plot_rich_reads_samlenames_lm <- function(physeq){
   rish <- estimate_richness(physeq, measures = "Observed")
   reads.sum <- as.data.frame(sample_sums(physeq))
@@ -937,6 +1111,7 @@ anova(mod)
 plot(TukeyHSD(mod))
 
 ```
+
 
 ```{r, message=FALSE,echo=TRUE, fig.height=7, fig.width=7}
 
@@ -1189,7 +1364,13 @@ plot_ordination(ps_f2_2, ordination.b, type="sample", color="pH", title="NMDS - 
     geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
 ```
 
-
+```{r, fig.height=6, fig.width=7}
+plot_ordination(ps_f2, ordination.b, type="sample", color="What", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+```
 
 ```{r}
 
@@ -1229,7 +1410,11 @@ ps.n4  <- prune_taxa(taxa_sums(ps.n4) > 0, ps.n4)
 amp.n4 <- phyloseq_to_amp(ps.n4)
 ps.n4@otu_table[,1]
 amp_heatmap(amp.n4, tax_show = 40, group_by = "Site", tax_aggregate = "Genus", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
 ```
+
+
+
 ```{r}
 
 ps.n4 <- prune_samples(sample_data(ps_f2_2)$Site %in% c("N4-1", 	"N4-2"), ps.f2)
@@ -1288,5 +1473,7 @@ ps.first <- prune_taxa(taxa_sums(ps.first) > 0, ps.first)
 amp.sseno <- phyloseq_to_amp(ps.first)
 
 amp_heatmap(amp.sseno, tax_show = 30, group_by = "Site", tax_aggregate = "Family", tax_class = "Proteobacteria", tax_add = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+
 ```
 
