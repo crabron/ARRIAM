@@ -689,6 +689,7 @@ des_w_simper <- function(ps, factor){
   res.df <- as.data.frame(res)
   nice <- cbind(res.df, as.data.frame(ps@tax_table@.Data[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])
 } 
+
 ```
 
 ### Amasing DESeq
@@ -895,46 +896,36 @@ map <- map %>%
   relocate(Repeat, .after = Site)
 
 map <- map %>%  mutate_if(sapply(map, is.character), as.factor)
-map
 
-ps.nc <- prune_samples(sample_data(ps.varstab)$Soil %in% c("Umbric Gleyic"), ps.varstab)
+map_m <- map
+colnames(map_m)
+colnames(map_m)[16] <- "C"
+colnames(map_m)[17] <- "C_org"
+colnames(map_m)[18] <- "P"
+colnames(map_m)[19] <- "K"
+colnames(map_m)[20] <- "NH4"
+colnames(map_m)[21] <- "NO3"
+
+colnames(map)
+
+ps.f <- prune_samples(! sample_data(ps.f)$Soil %in% c("Forest_gray"), ps.f)
+ps.f  <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+sample_data(ps.f) <- map_m
+
+ps.nc <- prune_samples(sample_data(ps.f)$Date %in% c("9/23/2020"), ps.f)
 map3 <- data.frame(ps.nc@sam_data) %>%  mutate(temp = scale(Temperature))
 ps.nc <- merge_phyloseq(ps.nc, sample_data(map3))
 
-
-ps.nc2 <- prune_samples(! sample_data(ps.varstab)$Soil %in% c("Umbric Gleyic"), ps.varstab)
+ps.nc2 <- prune_samples(! sample_data(ps.f)$Date %in% c("9/24/2020"), ps.f)
 map3 <- data.frame(ps.nc2@sam_data) %>%  mutate(temp = scale(Temperature))
 ps.nc2 <- merge_phyloseq(ps.nc2, sample_data(map3))
-ps_f2_2 <- merge_phyloseq(ps.nc, ps.nc2)
-ps_f2_2@sam_data
-ps.nc <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
-ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+ps.f <- merge_phyloseq(ps.nc, ps.nc2)
+
+ps.f@sam_data
 
 
-pssd2veg <- function(physeq) {
-  sd <- sample_data(physeq)
-  return(as(sd,"data.frame"))
-}
-
-sample_data(ps.f2) <- pssd2veg(ps.f2) %>% 
-  rownames_to_column("ID") %>% 
-    mutate(
-    Quarry_or_Benchmark = case_when(
-      grepl('Quarry', What) ~ 'Quarry',
-      grepl('Benchmark', What) ~ 'Benchmark'
-    ) 
-    ) %>%
-  relocate(Quarry_or_Benchmark, .before = Insolation) %>% 
-      column_to_rownames("Sample")
-
-ps <- read_rds("ps_f.rds")
-ps
-
-
-map_f3 <- data.frame(ps_f2_2@sam_data)
-map_f3 <- map_f3 %>%  mutate_if(sapply(map_f3, is.character), as.factor)
-ps.nc <- merge_phyloseq(ps_f2_2, sample_data(map_f3))
-ps.merged <- phyloseq::merge_samples(ps.nc, "Site")
+ps.merged <- phyloseq::merge_samples(ps.f, "Repeat")
 
 
 
@@ -952,8 +943,265 @@ sample_data(c)$Soil
 
 ```
 
-### Import actual phyloseq rds
+### CCA again
 
+
+
+```{r, message=FALSE,echo=TRUE, fig.height=7, fig.width=7}
+
+library(phyloseq)             
+library(vegan)
+
+physeq <- ps.merged
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+physeq@sam_data
+
+otus.ps.vegan <- veganifyOTU(physeq)
+
+metadata <- as(sample_data(physeq), "data.frame") 
+
+metadata
+
+cca <- vegan::cca(otus.ps.vegan ~  Humidity + pH + C_org + C +  K + NH4 + NO3 + temp, data=metadata)
+
+
+kate.ggcca.sites <- function(vare.cca){
+
+require(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+wa <- as.data.frame(vare.cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa))))
+fdat_amazing <- rbind(biplot, wa)
+
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) + 
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  return(p)
+}
+
+kate.ggcca.sites(cca)
+
+
+```
+
+
+```{r}
+
+anova(cca)
+anova(cca, by="terms")
+anova(cca, by="mar")
+vif.cca(cca)
+
+```
+
+
+#### Try another CCA models
+
+```{r, message=FALSE,echo=TRUE, fig.height=7, fig.width=7}
+
+
+
+
+cca_w <- vegan::cca(otus.ps.vegan ~  Humidity + pH + C_org + NH4 + temp, data=metadata)
+
+
+kate.ggcca.sites <- function(vare.cca){
+
+require(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+wa <- as.data.frame(vare.cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa))))
+fdat_amazing <- rbind(biplot, wa)
+
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) + 
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  # geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  return(p)
+}
+
+kate.ggcca.sites(cca_w)
+
+```
+
+```{r}
+
+anova(cca_w)
+anova(cca_w, by="terms")
+anova(cca_w, by="mar")
+vif.cca(cca_w)
+
+```
+
+#### Same with varstab normalisation
+
+```{r, message=FALSE,echo=TRUE, fig.height=7, fig.width=7}
+
+ps_vst <- function(ps){
+  diagdds = phyloseq_to_deseq2(ps, ~ Repeat)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+
+ps.varstab <- ps_vst(ps.f)
+ps.varstab.merged <- phyloseq::merge_samples(ps.varstab, "Repeat")
+physeq <- ps.varstab.merged
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+physeq@sam_data
+
+otus.ps.vegan <- veganifyOTU(physeq)
+
+metadata <- as(sample_data(physeq), "data.frame") 
+
+
+cca_w_varstab <- vegan::cca(otus.ps.vegan ~  temp + pH + C_org + NH4,  data=metadata)
+cca_f_varstab <- vegan::cca(otus.ps.vegan ~  Humidity + pH + C_org + C +  K + NH4 + NO3 + temp + P, data=metadata)
+
+
+kate.ggcca.sites(cca_w_varstab)
+
+```
+
+
+```{r}
+
+anova(cca_w_varstab, parallel = 10)
+anova(cca_w_varstab, by="terms", parallel = 10)
+anova(cca_w_varstab, by="mar", parallel = 10)
+vif.cca(cca_w_varstab)
+
+```
+
+#### CCA for taxons - family level
+
+```{r, message=FALSE,echo=TRUE, fig.height=9, fig.width=9}
+
+ps.ff <-  filter_taxa(ps.f, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
+ps.varstab <- ps_vst(ps.ff)
+ps.varstab.merged <- phyloseq::merge_samples(ps.varstab, "Repeat")
+ps.varstab.merged.family <- tax_glom(ps.varstab.merged, taxrank="Family")
+
+physeq <- ps.varstab.merged.family
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+
+otus.ps.vegan <- veganifyOTU(physeq)
+
+metadata <- as(sample_data(physeq), "data.frame") 
+
+
+cca_w_varstab_family <- vegan::cca(otus.ps.vegan ~  temp + pH + C_org + NH4,  data=metadata)
+
+kate.ggcca.species <- function(vare.cca, physeq){
+
+require(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+
+wa <- as.data.frame(vare.cca$CCA$v) %>% 
+  rownames_to_column("ID")
+seq <- wa
+f <- as.data.frame(physeq@tax_table@.Data) %>% 
+  select("Family") %>% 
+  rownames_to_column("ID")
+wa <- full_join(v, f) %>% 
+  select(-ID) %>% 
+  rename("Family" = "Label") %>% 
+  mutate(Score = "sites")
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+fdat_amazing <- rbind(biplot, wa) %>% 
+  mutate(Label = as.factor(Label))
+
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) + 
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  # geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  return(fdat_amazing)
+}
+
+
+kate.ggcca.species(cca_w_varstab_family, physeq) 
+
+```
+
+### PERMANOVA for all
+
+```{r, echo=TRUE, rows.print = 112}
+
+permanova.forloop.noNestedPlant <- function(factor){
+  require(vegan)
+  require(phyloseq)
+  dist <- phyloseq::distance(physeq, "bray")
+  metadata <- as(sample_data(physeq@sam_data), "data.frame")
+  ad <- adonis2(as.formula(paste( "dist ~ ", factor)), data = metadata)
+  ad <- cbind2(ad[1,][3], ad[1,][5])
+  return(ad)
+}
+
+physeq <- ps.varstab
+permanova.forloop.pos.noPlant <- possibly(permanova.forloop.noNestedPlant, otherwise = NA)
+out <- map(colnames(physeq@sam_data[, 3:length(colnames(physeq@sam_data))]), permanova.forloop.pos.noPlant)
+out.d.noPlant <- do.call("rbind", out)
+out.d.noPlant
+
+```
+
+```{r}
+
+cca_w_varstab_family$CCA$v["Seq10", ]
+length(colnames(otus.ps.vegan))
+length(rownames(cca_w_varstab_family$CCA$v))
+anova(cca_w_varstab_family, parallel = 10)
+anova(cca_w_varstab_family, by="terms", parallel = 10)
+anova(cca_w_varstab_family, by="mar", parallel = 10)
+vif.cca(cca_w_varstab_family)
+
+```
+
+
+### Import actual phyloseq rds
 
 ```{r}
 
@@ -1381,7 +1629,7 @@ ps_f2_2@sam_data
 ps.merged@sam_data
 ```
 
-```{r, fig.height=12, fig.width=6}
+```{r, fig.height=6, fig.width=8}
 ps.merged@sam_data
 
 phyloseq_to_amp <- function(ps){
@@ -1410,6 +1658,11 @@ ps.n4  <- prune_taxa(taxa_sums(ps.n4) > 0, ps.n4)
 amp.n4 <- phyloseq_to_amp(ps.n4)
 ps.n4@otu_table[,1]
 amp_heatmap(amp.n4, tax_show = 40, group_by = "Site", tax_aggregate = "Genus", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+
+amp.f <- phyloseq_to_amp(ps.f)
+
+amp_heatmap(amp.f, tax_show = 15, group_by = "Site", tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
 
 ```
 
