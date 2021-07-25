@@ -1,0 +1,382 @@
+---
+title: "cellulo_com_its"
+author: "GrGladkov"
+date: "17 06 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/home/gladkov/storage/cellulolit/its_new")
+```
+
+
+
+ls | grep Abakumov- | xargs cp -t  ~/storage/cryo/in
+
+```{r}
+
+setwd("/home/gladkov/storage/cellulolit/its_new")
+path = "/home/gladkov/storage/cellulolit/its/dada2_pipeline/in"
+path_trein_set = "~/storage/somebases/sh_general_release_s_all_04.02.2020/sh_general_release_dynamic_s_all_04.02.2020.fasta"
+name_Brief = "nameBrief.txt"
+
+mult = TRUE
+mlt = NULL
+
+require(dada2)
+require(Biostrings)
+require(DECIPHER)
+require(phyloseq)
+require(seqinr)
+require(data.table)
+require(metagMisc)
+require(tibble)
+library(dada2)
+library(ShortRead)
+library(Biostrings)
+library(seqinr)
+
+# docker container run --rm -e AMPLICONLENGTH=[amplicon length] -e FORWARDPRIMERLENGTH=[forward primer length] \
+# -e REVERSEPRIMERLENGTH=[reverse primer length] -v /path/to/fastqs:/data/input \
+# -v / figaro
+
+# docker container run --rm -e AMPLICONLENGTH=260 -e FORWARDPRIMERLENGTH=20 \
+# -e REVERSEPRIMERLENGTH=19 -v /home/gladkov/storage/nal/in \
+# -v /home/gladkov/storage/nal figaro
+
+# python3 figaro.py -i /home/gladkov/storage/nal/in -o /home/gladkov/storage/nal -a 260 -f 20 -r 19
+
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+
+length(fnFs)
+
+
+fnFs <- c(fnFs[1:24], fnFs[27:28])
+
+
+```
+
+
+```{r}
+
+plotQualityProfile(fnFs, aggregate = TRUE)
+
+```
+
+
+```{r}
+
+plotQualityProfile(fnFs[1:16], aggregate = FALSE)
+
+```
+
+
+```{r}
+
+FWD <- "GCATCGATGAAGAACGCAGC"  ## CHANGE ME to your forward primer sequence
+REV <- "TCCTCCGCTTATTGATATGC"  ## CHANGE ME...
+
+fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
+
+
+allOrients <- function(primer) {
+    # Create all orientations of the input sequence
+    require(Biostrings)
+    dna <- DNAString(primer)  # The Biostrings works w/ DNAString objects rather than character vectors
+    orients <- c(Forward = dna, Complement = Biostrings::complement(dna), Reverse = reverse(dna), 
+        RevComp = reverseComplement(dna))
+    return(sapply(orients, toString))  # Convert back to character vector
+}
+
+FWD.orients <- allOrients(FWD)
+REV.orients <- allOrients(REV)
+FWD.orients
+
+fnFs.filtN <- file.path(path, "filtN", basename(fnFs)) # Put N-filterd files in filtN/ subdirectory
+fnRs.filtN <- file.path(path, "filtN", basename(fnRs))
+filterAndTrim(fnFs, fnFs.filtN, fnRs, fnRs.filtN, maxN = 0, multithread = TRUE)
+
+primerHits <- function(primer, fn) {
+    # Counts number of reads in which the primer is found
+    nhits <- vcountPattern(primer, sread(readFastq(fn)), fixed = FALSE)
+    return(sum(nhits > 0))
+}
+
+rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs.filtN[[1]]), 
+    FWD.ReverseReads = sapply(FWD.orients, primerHits, fn = fnRs.filtN[[1]]), 
+    REV.ForwardReads = sapply(REV.orients, primerHits, fn = fnFs.filtN[[1]]), 
+    REV.ReverseReads = sapply(REV.orients, primerHits, fn = fnRs.filtN[[1]]))
+
+cutadapt <- "/home/gladkov/.conda/envs/pandas/bin/cutadapt" # CHANGE ME to the cutadapt path on your machine
+system2(cutadapt, args = "--version") # Run shell commands from R
+
+path.cut <- file.path(path, "cutadapt")
+if(!dir.exists(path.cut)) dir.create(path.cut)
+fnFs.cut <- file.path(path.cut, basename(fnFs))
+fnRs.cut <- file.path(path.cut, basename(fnRs))
+
+
+FWD.RC <- dada2:::rc(FWD)
+REV.RC <- dada2:::rc(REV)
+# Trim FWD and the reverse-complement of REV off of R1 (forward reads)
+R1.flags <- paste("-g", FWD, "-a", REV.RC) 
+# Trim REV and the reverse-complement of FWD off of R2 (reverse reads)
+R2.flags <- paste("-G", REV, "-A", FWD.RC) 
+R3.flags <- paste("--minimum-lengt 10")
+# Run Cutadapt
+for(i in seq_along(fnFs)) {
+  system2(cutadapt, args = c(R1.flags, R2.flags,R3.flags, "-n", 2,  # -n 2 required to remove FWD and REV from reads
+                             "-o", fnFs.cut[i], "-p", fnRs.cut[i], # output files
+                             fnFs.filtN[i], fnRs.filtN[i])) # input files             
+}
+
+# Forward and reverse fastq filenames have the format:
+cutFs <- sort(list.files(path.cut, pattern = "_R1_001.fastq.gz", full.names = TRUE))
+cutRs <- sort(list.files(path.cut, pattern = "_R2_001.fastq.gz", full.names = TRUE))
+
+# Extract sample names, assuming filenames have format:
+get.sample.name <- function(fname) strsplit(basename(fname), "_")[[1]][1]
+sample.names <- unname(sapply(cutFs, get.sample.name))
+head(sample.names)
+
+filtFs <- file.path(path.cut, "filtered", basename(cutFs))
+filtRs <- file.path(path.cut, "filtered", basename(cutRs))
+
+out <- filterAndTrim(cutFs, filtFs, cutRs, filtRs, maxN = 0, maxEE = c(2, 3), 
+    truncQ = 2, minLen = 50, rm.phix = TRUE, compress = TRUE, multithread = TRUE)  # on windows, set multithread = FALSE
+head(out)
+
+
+```
+
+
+```{r}
+
+mult = TRUE
+errF <- learnErrors(filtFs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult, pool="pseudo")
+seqtab <- makeSequenceTable(dadaFs)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+#dna <- DNAStringSet(briefToSeq)
+#alignment <- AlignSeqs(DNAStringSet(dna), anchor=NA,verbose=FALSE, processors = mlt)
+#writeXStringSet(alignment, file="align.fasta")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+
+rownames(taxa.dada2) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2)
+taxa <- cbind2(taxa.dada2, taxa.dada2[,2])
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), rowSums(seqtab.nochim))
+track
+colnames(track) <- c("input", "filtered", "denoisedF", "nonchim")
+rownames(track) <- sample.names
+write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+```
+
+### constucrion of phyloseq object
+
+```{r}
+
+library(dplyr)
+library(naturalsort)
+
+map <- read_tsv("map_backbone.csv")
+map <- map %>% mutate(Association = as.factor(as.character(Association))) %>% 
+  add_row(ID = "neg_16s" , Association = "neg_16s", Repeat_number = 1, Repeats = "neg.16s") %>% 
+  add_row(ID = "pos_16s" , Association = "pos_16s", Repeat_number = 1, Repeats = "pos.16s") %>% 
+  add_row(ID = "neg_ITS" , Association = "neg_ITS", Repeat_number = 1, Repeats = "neg.its") %>% 
+  add_row(ID = "pos_ITS" , Association = "pos_ITS", Repeat_number = 1, Repeats = "pos.its") %>% 
+  mutate(Association = as.factor(as.character(Association))) %>% 
+  mutate(Substrate = case_when( Association == "29" ~ "sawdust", 
+                                Association == "46" ~ "birch_leaves",
+                                Association %in% c("26", "14") ~ "oat_straw",
+                                TRUE ~ "control")) %>% 
+  column_to_rownames("ID")
+
+map         
+
+
+filt.otu <- read.csv("otu_table.txt" , header=TRUE, sep="\t")
+colnames(filt.otu)[1] <- "ID"
+filt.otu <- column_to_rownames(filt.otu, "ID")
+filt.otu <- filt.otu[c(naturalsort(colnames(filt.otu)))]
+filt.otu
+colnames(filt.otu) <- rownames(map)
+filt.otu
+# class(filt.otu) <- "numeric"
+filt.otu <- as.matrix(filt.otu)
+filt.otu <- t(filt.otu)
+
+
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X') %>% select(-X.1)
+taxa <- as.matrix(taxa)
+taxa
+
+ps <- phyloseq(otu_table(filt.otu, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa))
+
+ps <- merge_phyloseq(ps, refseq(readDNAStringSet("rep_seq.fasta")))
+ps
+
+```
+
+
+```{r, fig.height=8, fig.width=8}
+
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+  
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata)
+    return(amp.ps)
+}
+
+amp <- phyloseq_to_amp(ps)
+
+ps@sam_data
+
+amp_heatmap(amp,tax_show = 50, group_by = "Association", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+```
+
+### Blast time
+
+Comm 46 - birch_leafes
+
+-- infusorium and some other protista(or begonia)
+
+Cohnella, Paenibacillaceae
+
+```{r}
+toString(ps@refseq$Seq3)
+```
+
+Begonia? Celliata?? Uncultured fungus??
+
+```{r}
+toString(ps@refseq$Seq2)
+```
+
+Vannella? Phragmidium? Uncultered fungus?
+```{r}
+toString(ps@refseq$Seq6)
+```
+
+Same as Seq6
+
+```{r}
+toString(ps@refseq$Seq11)
+```
+
+Comm 14 - straw
+
+
+Nothing
+
+```{r}
+
+toString(ps@refseq$Seq4)
+
+```
+
+Comm 26 - straw
+
+Nothing
+
+```{r}
+
+toString(ps@refseq$Seq7)
+
+```
+
+```{r}
+
+amp
+
+```
+
+```{r, fig.height=8, fig.width=8}
+
+ps.f <- prune_samples(!sample_data(ps)$Substrate %in% "control", ps)
+ps.f  <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+
+ps.f
+amp.f <- phyloseq_to_amp(ps.f)
+amp.f
+
+amp_heatmap(amp.f, tax_show = 50, group_by = "Association", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+ps.f@tax_table
+
+
+```
+
+Инфузория?
+
+```{r}
+
+toString(ps@refseq$Seq1)
+
+```
+
+
+```{r}
+
+ps.neg16s <- prune_samples(sample_data(ps)$Association %in% "neg_16s", ps)
+ps.neg16s  <- prune_taxa(taxa_sums(ps.neg16s) > 0, ps.neg16s)
+
+
+ps.neg16s@tax_table
+
+```
+
+```{r}
+
+toString(ps@refseq$Seq15)
+
+```
