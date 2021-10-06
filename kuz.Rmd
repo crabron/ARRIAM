@@ -70,7 +70,7 @@ nrow(taxa)
 otus[21:24]
 
 otus <- read_delim( "~/storage/kuz/otu_table.txt" ,delim = "\t") %>% 
-  column_to_rownames("X1")
+  column_to_rownames("...1")
 
 col_names_otus <- colnames(otus)
 colnames_otus_nice <- paste0(sapply(strsplit(col_names_otus, "[.]"), 
@@ -80,11 +80,19 @@ colnames(otus) <- colnames_otus_nice
 colnames_otus_nice
 otu_table <- t(as.matrix(otus))
 
+taxa <- read_delim("~/storage/kuz/taxa.txt", delim = "\t")
+taxa[1,1]
 taxa <- read_delim("~/storage/kuz/taxa.txt", delim = "\t") %>% 
-  column_to_rownames("X1") %>% 
+  column_to_rownames("...1") %>% 
   as.matrix()
 
-tree <- read_tree(treefile="~/storage/kuz/tree.nwk")
+tree <- ape::read.tree(file="~/storage/kuz/tree.nwk")
+tree
+
+library(phytools)
+# install.packages("phytools")
+tree <- DECIPHER::ReadDendrogram("~/storage/kuz/tree.nwk")
+tree
 
 ps <- phyloseq(otu_table(otu_table, taxa_are_rows=FALSE), 
                sample_data(map),
@@ -92,12 +100,109 @@ ps <- phyloseq(otu_table(otu_table, taxa_are_rows=FALSE),
                phy_tree(tree))
 
 ps
+ps.f
+
+ps <- phyloseq(otu_table(otu_table, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa))
+
+ps <- merge_phyloseq(ps, refseq(readDNAStringSet("rep_seq.fasta")))
+
+ps
+ps <- ps.f
 map <- map %>%  mutate(Description = paste0(Region, "_", Site, "_", Horizon))
 
 map <- map %>% mutate(Description = as.factor(Description))
 
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+ps.q@sam_data
+ps.f <- delete_mit_chl(ps)
+ps.f <- ps
+
+ps.f <- prune_samples(sample_data(ps.f)$Region %in% c("Kuznechnoe"),ps.f)
+ps.f  <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+
+ps.q <- prune_samples(sample_data(ps.f)$Soil %in% c("granite_screenings"),ps.f)
+ps.q  <- prune_taxa(taxa_sums(ps.q) > 0, ps.q)
+
+ps.12 <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Лесная"),ps.f2)
+ps.12  <- prune_taxa(taxa_sums(ps.12) > 0, ps.12)
+
+ps.nc <- prune_samples(! sample_data(ps_f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+ps.cc <- prune_samples(sample_data(ps_f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
+ps.cc  <- prune_taxa(taxa_sums(ps.cc) > 0, ps.cc)
+
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl_eu <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Kingdom == "Eukaryota"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, is.na(Phylum)))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+saveRDS(ps.f, file = "ps.f.rds")
+
+ps.f <- delete_mit_chl_eu(ps)
+
+
+metadata <- ps.f@sam_data
+metadata$Horizon <- as.factor(metadata$Horizon)
+metadata$Description <- sapply(strsplit(metadata$Description, "Kuznechnoe_"), `[`, 2)
+metadata
+metadata$Description <- factor(metadata$Description, levels =  c("Benchmark_AY", "Quarry_AY", "Quarry_AC", "Quarry_C"))
+
+sample_data(ps) <- metadata
+
+
+metadata$Description
+ps.f <- ps
+writeXStringSet(ps@refseq, file="ref_filt.fasta")
+```
+
+###Filterr repp
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+# Plot alpha-diversity by selected metric
+plot_alpha <- function(ps, metric, group) {
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot(, fill="#4DBBD5B2", alpha=0.4) +
+    geom_point(size=1.2, alpha=0.3) + 
+    theme_light() + scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x=element_blank(),
+          text = element_text(size=20)) +
+    labs(y=paste("alpha-diversity index")) 
+}
+
+plot_alpha(ps.f, c("Observed","Shannon","InvSimpson"), "Description") 
 
 ```
+
+
 
 
 ```{r}
@@ -113,10 +218,15 @@ plot_alpha <- function(ps, metric, group) {
     labs(y=paste("alpha-diversity index")) 
 }
 
-plot_alpha(ps, c("Observed","Shannon","InvSimpson"), "Description") 
+estimate_richness(ps, measures = "shannon")
+cor(estimate_richness(ps), ps@sam_data$pH)
+
+
+plot_alpha(ps.f, c("Observed","Shannon","InvSimpson"), "Description") 
 
 ```
-```{r}
+
+```{r,fig.height=10, fig.width=8, results=FALSE}
 
 phyloseq_to_amp <- function(ps){
     require(ampvis2)
@@ -133,16 +243,18 @@ phyloseq_to_amp <- function(ps){
 
     my_metadata <- as_tibble(sample_data(ps), rownames=NA)
     my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
-    my_tree <- phy_tree(ps)
-    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    # my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata)
     return(amp.ps)
 }
 
 
-amp <- phyloseq_to_amp(ps)
-amp_heatmap(amp,tax_show = 60, group_by = "Description", tax_aggregate = "Genus", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+amp <- phyloseq_to_amp(ps.f)
+amp_heatmap(amp,tax_show = 30, group_by = "Description", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
 amp
 ```
+
+
 
 
 ```{r}
@@ -158,10 +270,10 @@ ps_vst <- function(ps){
   return(ps.varstab)
 }
 
-ps.varstab <- ps_vst(ps)
+ps.varstab <- ps_vst(ps.f)
 ```
 
-```{r,fig.height=5, fig.width=12, results=FALSE}
+```{r,fig.height=5.5, fig.width=14, results=FALSE}
 ps.rand <- rarefy_even_depth(ps)
 
 ordination.b <- ordinate(ps.varstab, "PCoA", "bray")
@@ -178,23 +290,232 @@ ordination.w <- ordinate(ps.varstab, "PCoA", "wunifrac")
   
   p3 <-  plot_ordination(ps, ordination.w, type="sample", color="Description", title="Weighted UniFrac", 
                        axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+   p1 <-  plot_ordination(ps.varstab, ordination.b, type="Description", color="Description", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
   
+   p2 <-  plot_ordination(ps.varstab, ordination.u, type="Description", color="Description", title="UniFrac", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+   p3 <-  plot_ordination(ps.varstab, ordination.w, type="Description", color="Description", title="Weighted UniFrac", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
   #merge by ggpubr
   
-  p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "bottom", font.label = list(size = 12, face = "bold", color ="black"))
+  ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "none", font.label = list(size = 12, face = "bold", color ="black"))
   
 p.all
 
-
+p1
 ```
 
+
+```{r, fig.height=10, fig.width=14,  rows.print = 50}
+
+ps.f@sam_data
+p_ph1 <- plot_ordination(ps.f, ordination.b, type="sample", color="pH", title="pH", 
+                       axes = c(1,2) ) + theme_bw() +
+    theme(text = element_text(size = 15)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 15, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))+
+  theme(axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank(), #remove x axis ticks
+        axis.text.y=element_blank(),  #remove y axis labels
+        axis.ticks.y=element_blank()  #remove y axis ticks
+        )
+p_ph2 <- plot_ordination(ps.f, ordination.b, type="sample", color="P_mg.kg", title="P", 
+                       axes = c(1,2) ) + theme_bw() +
+    theme(text = element_text(size = 15), ) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 15, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm")) +
+  theme(axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank(), #remove x axis ticks
+        axis.text.y=element_blank(),  #remove y axis labels
+        axis.ticks.y=element_blank()  #remove y axis ticks
+        )
+p_ph3 <- plot_ordination(ps.f, ordination.b, type="sample", color="K_mg.kg", title="K", 
+                       axes = c(1,2) ) + theme_bw() +
+    theme(text = element_text(size = 15)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 15, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))+
+  theme(axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank(), #remove x axis ticks
+        axis.text.y=element_blank(),  #remove y axis labels
+        axis.ticks.y=element_blank()  #remove y axis ticks
+        )
+p_ph4 <- plot_ordination(ps.f, ordination.b, type="sample", color="NH4_mg.kg", title="NH4", 
+                       axes = c(1,2) ) + theme_bw() +
+    theme(text = element_text(size = 15)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 15, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))+
+  theme(axis.text.x=element_blank(), #remove x axis labels
+        axis.ticks.x=element_blank(), #remove x axis ticks
+        axis.text.y=element_blank(),  #remove y axis labels
+        axis.ticks.y=element_blank()  #remove y axis ticks
+        )
+
+ggarrange(p_ph1 , p_ph2, p_ph3, p_ph4, ncol = 2 , nrow = 2, common.legend = FALSE , font.label = list(size = 12, face = "bold", color ="black"))
+```
+
+
+
+
 ```{r,fig.height=10, fig.width=12, results=FALSE}
-ordination.b <- ordinate(ps.varstab, "PCoA", "bray")
+ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
 
 plot_ordination(ps.varstab, ordination.b, type="Description", color="Description", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
     theme_bw() + 
     theme(text = element_text(size = 10)) + 
     geom_point(size = 3) +
     geom_mark_ellipse(aes(group = Description, label = Description), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+
+```
+
+```{r, message=FALSE, echo=FALSE}
+des_w_simper <- function(ps, factor){
+  require(DESeq2)
+  require(vegan)
+  require(tibble)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  diagdds = DESeq(diagdds)
+  samp <-sample_data(ps)
+  aggdata <- t(aggregate.data.frame(as.data.frame(as.data.frame(t(diagdds@assays@data$mu))), by=list(samp[[factor]]), median))
+  colnames(aggdata) <- aggdata[1,]
+  aggdata <- aggdata[-1,]
+  res = results(diagdds)
+  res.df <- as.data.frame(res)
+  nice <- cbind(res.df, as.data.frame(ps@tax_table@.Data[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])
+} 
+
+ps@sam_data
+
+```
+
+### Amasing DESeq
+
+
+```{r, eval=FALSE}
+
+des.qb <- des_w_simper(ps.f, "Description")
+des.qb
+des.cc <- des_w_simper(ps.cc, "Quarry_or_Benchmark")
+
+des.qb <- des.qb %>% filter(baseMean > 30) %>% filter(padj < 0.05) %>% arrange(log2FoldChange)
+des.qb
+des.cc.filt <- des.qb %>% filter(baseMean > 30) %>% filter(padj < 0.05) %>% arrange(log2FoldChange)
+des.cc.filt <- des.qb %>% filter(baseMean > 30) %>% arrange(log2FoldChange)
+des.cc.filt
+write.table(des.nc.filt, file = "des_nc_filt.tsv", sep= "\t", col.names = NA, quote=FALSE)
+write.table(des.cc.filt, file = "des_cc_filt.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+```
+
+
+```{r}
+plot_heatmap <- function(ps, group, ...){
+  sig.ps <- prune_taxa(rownames(get_differences(ps, group, ...)), ps)
+  
+  sig.taxa.long <- psmelt(sig.ps) %>% 
+    select(Replica, Site, Abundance, Phylum, Class, Order, Family, Genus) %>%
+    filter(Site %in% group) %>% 
+    arrange(Phylum) %>% 
+    mutate(row = row_number()) %>% 
+    mutate_all(as.character)  # fuckin magic for ifelse tier
+  
+  sig.taxa.long$Abundance <- as.numeric(sig.taxa.long$Abundance)
+  sig.taxa.long$Taxa <- ifelse(is.na(sig.taxa.long$Genus),
+                               ifelse(is.na(sig.taxa.long$Family), 
+                                  ifelse(is.na(sig.taxa.long$Order), 
+                                         ifelse(is.na(sig.taxa.long$Class), 
+                                        paste(sig.taxa.long$Phylum, "// NA"), 
+                                      paste(sig.taxa.long$Class, "// NA")),
+                                    paste(sig.taxa.long$Order, "// NA")),
+                                  paste(sig.taxa.long$Family, "// NA")), 
+                               sig.taxa.long$Genus)
+  sig.taxa.long[sig.taxa.long == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
+  sig.taxa.long[sig.taxa.long == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Pararhizobium"
+
+  # sig.taxa.long$taxa2 <- ifelse(is.na(sig.taxa.long$Species), with(sig.taxa.long, paste0(taxa)), with(sig.taxa.long, paste0(taxa, " ", Species )))
+  
+  ggplot(sig.taxa.long, aes(x = Replica, y = reorder(Taxa, row))) + 
+    geom_tile(aes(fill=log(Abundance))) +
+    scale_fill_distiller(palette = "OrRd", trans = "reverse") +
+    facet_grid(rows = vars(Phylum), scales = "free_y", space = "free") +
+    theme(strip.text.y = element_text(angle = 0),
+          panel.spacing = unit(0.05,'lines')) +
+    xlab("") + ylab("") +
+    theme(axis.text.x = element_text(angle = 90))
+}
+
+get_differences <- function(ps, group, ...){
+  names <- rownames(sample_data(ps) %>% data.frame() %>% dplyr::filter(Site == group))
+  ps.g <- prune_samples(names, ps)
+  ps.2 <- prune_taxa(taxa_sums(ps.g) > 0, ps.g)
+
+  sig_data <- sig_table(ps.2, ~Site, ...)
+  sig_data
+}
+
+sig_table <- function(ps_object, formula, threshold = c(20, 2)){
+  ds <- phyloseq_to_deseq2(ps_object, formula)
+  ds = estimateSizeFactors(ds, type="poscounts")
+  ds = estimateDispersions(ds, fitType = "local")
+  ds = DESeq(ds)
+  #mcols(ds, use.names=TRUE)
+  res = results(ds, cooksCutoff = FALSE)
+  sigtab = res[which(res$padj < 0.05), ]
+  sigtab <- sigtab
+  if (nrow(sigtab) == 0) {
+    return(NA)
+  }
+  sigtab = cbind(as(sigtab, "data.frame"),
+                 as(tax_table(ps_object)[rownames(sigtab), ], "matrix"),
+                 as(t(otu_table(ps_object))[rownames(sigtab), ], "matrix")
+  )
+  sigtab <- data.frame(sigtab) %>% dplyr::filter(baseMean >= threshold[1], log2FoldChange >= threshold[2])
+  return(sigtab)
+}
+
+plot_heatmap(ps, Description)
+ps.f
+ps@sam_data
+```
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=8}
+library(ggVennDiagram)
+
+ps_f_family <- tax_glom(ps_f, taxrank="Family")
+
+get_list_from_ps <- function(physeq, amaz_fac) {
+  my_keys <- levels(sample_data(physeq)[[amaz_fac]])
+  mylist <- vector(mode="list", length=length(my_keys))
+  names(mylist) <- my_keys
+  for (i in levels(sample_data(physeq)[[amaz_fac]])) { 
+    x <- prune_samples(sample_data(physeq)[[amaz_fac]] %in% i, physeq)
+    x <- prune_taxa(taxa_sums(x) > 0, x)
+    mylist[[i]] <- taxa_names(x)
+  }
+  return(mylist)
+}
+
+?ggVennDiagram
+ggVennDiagram(get_list_from_ps(ps_f_family, "Soil")) + 
+  ggplot2::scale_fill_viridis_c(option = "D", begin=0.2)
+
+ps.f@sam_data
+
+ggVennDiagram(get_list_from_ps(ps.f, "Description"), set_size = 4.5) + 
+  ggplot2::scale_fill_viridis_c(option = "D", begin=0.2)
 
 ```

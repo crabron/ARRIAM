@@ -1,0 +1,395 @@
+---
+title: "endo"
+author: "GrGladkov"
+date: "03 10 2021"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/home/gladkov/storage/Endo/")
+path_trein_set = "~/storage/somebases/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.fa"
+name_Brief = "nameBrief.txt"
+```
+
+
+
+```{r}
+
+library(Matrix)
+library(ShortRead)
+library(dada2)
+library(Biostrings)
+library(seqinr)
+library(tidyverse)
+
+```
+
+
+
+```{r}
+
+setwd("/home/gladkov/storage/Endo/")
+path <- "in/"
+list.files()
+
+```
+
+```{r}
+
+library(naturalsort)
+path <- "in/"
+FWD <- "GGATTAGATACCCTGGTA" 
+REV <- "CGACRRCCATGCANCACCT"
+
+length(FWD)
+
+cutFs <- sort(list.files(path.cut, pattern = "_R1_001.fastq.gz", full.names = TRUE))
+cutRs <- sort(list.files(path.cut, pattern = "_R2_001.fastq.gz", full.names = TRUE))
+fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
+fnFs <- sort(list.files(path, pattern = "_F_filt.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "_R_filt.fastq.gz", full.names = TRUE))
+get.sample.name <- function(fname) strsplit(basename(fname), "_")[[1]][1]
+sample.names <- unname(sapply(cutFs, get.sample.name))
+basename(fnFs)
+sort(fnFs)
+filenames_d <- data_frame(forward_reads = basename(fnFs), reverse_reads = basename(fnRs) )
+filenames_d
+fnFs <- naturalsort(fnFs)
+fnRs <- naturalsort(fnRs)
+plotQualityProfile(fnRs[8])
+
+
+fnFs <- sort(list.files(path, pattern="_R1_001.fastq", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern="_R2_001.fastq", full.names = TRUE))
+  
+plotQualityProfile(fnFs, aggregate = TRUE)
+```
+
+
+```{r}
+
+plotQualityProfile(fnRs, aggregate = TRUE)
+
+```
+
+
+```{r}
+length(fnRs)
+```
+
+```{r}
+plotQualityProfile(fnRs)
+
+mult = TRUE
+mlt = NULL
+
+packageVersion("Matrix")
+BiocManager::install("ShortRead")
+BiocManager::install("dada2")
+
+install.packages("~/storage/temp/dada2-master//",
+                 repos = NULL,
+                 type = "source",
+                 dependencies = c("Depends", "Suggests","Imports"))
+
+
+remove.packages("Matrix")
+devtools::install_version("Matrix", version = "1.3.2", repos = "http://cran.us.r-project.org")
+
+```
+
+
+```{r} 
+
+sample.names <- sapply(strsplit(basename(fnFs), "_"), `[`, 1)
+on.exit()
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+out <- filterAndTrim(fnFs, filtFs, fnRs, filtRs, truncLen=c(250,200), trimLeft=c(18,19), maxN=0, maxEE=c(2,6), rm.phix=TRUE, compress=TRUE, multithread=20)
+errF <- learnErrors(filtFs, multithread=mult)
+errR <- learnErrors(filtRs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult, pool=FALSE)
+dadaRs <- dada(derepRs, err=errR, multithread=mult, pool=FALSE)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+write.table(briefToSeq, file = "endo_taxa", sep = "\t")
+
+#dna <- DNAStringSet(briefToSeq)
+#alignment <- AlignSeqs(DNAStringSet(dna), anchor=NA,verbose=FALSE, processors = mlt)
+#writeXStringSet(alignment, file="align.fasta")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+as.data.frame(st.brief.t.df)
+```
+
+
+#### map, reexport
+
+```{r}
+
+
+library(phyloseq)
+#some SEPP bash tree magic
+
+map <- read_tsv("endo_map.tsv")
+map
+map <- column_to_rownames(map, "ID")
+
+map
+
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
+
+
+filt.otu <- read.csv("otu_table.txt" , header=TRUE, sep="\t")
+filt.otu
+colnames(filt.otu)[1] <- "ID"
+filt.otu <- column_to_rownames(filt.otu, "ID")
+filt.otu
+library(naturalsort)
+filt.otu <- filt.otu[c(naturalsort(colnames(filt.otu)))]
+colnames(filt.otu)
+colnames(filt.otu) <- rownames(map)
+filt.otu
+# class(filt.otu) <- "numeric"
+
+filt.otu <- as.matrix(filt.otu)
+filt.otu <- t(filt.otu)
+rownames(filt.otu)
+rownames(map)
+
+tree <- read_tree(treefile="tree.nwk")
+
+ps <- phyloseq(otu_table(filt.otu, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa)
+               )
+
+phy_tree(tree)
+length(tree$tip.label)
+ps@phy_tree$tip.label
+ps
+
+filt.otu[0,] = rownames(map)
+rownames(filt.otu) == rownames(map)
+
+rownames(taxa)
+
+intersect(rownames(as.data.frame(filt.otu.matrix)), rownames(map)) %>% length()
+
+colnames(filt.otu)
+ps <- merge_phyloseq(ps, refseq(readDNAStringSet("rep_seq.fasta")))
+ps
+
+```
+
+
+```{r}
+delete_mit_chl_eu <- function(ps)  {
+  
+  pop_taxa <- function(physeq, badTaxa)
+    {
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+  }
+  
+  del_chl <- function(ps){
+    if ("Chloroplast" %in% as.data.frame(ps@tax_table@.Data)$Order){
+      badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+      ps <- pop_taxa(ps, badTaxa)
+    }
+    else{
+    return(ps)  
+    }
+  }
+  
+  del_mit <- function(ps)
+    {
+    if ("Mitochondria" %in% as.data.frame(ps@tax_table@.Data)$Family) {
+        badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+    ps <- pop_taxa(ps, badTaxa)
+    }
+    else{
+    return(ps)  
+    }
+  }
+  
+    del_eu <- function(ps){
+    if ("Eukaryota" %in% as.data.frame(ps@tax_table@.Data)$Kingdom){
+      badTaxa <- taxa_names(subset_taxa(ps, Kingdom == "Eukaryota"))
+      ps <- pop_taxa(ps, badTaxa)
+    }
+    else{
+    return(ps)  
+    }
+  }
+    
+    del_phy <- function(ps){
+    if (any(is.na(as.data.frame(ps@tax_table@.Data)$Phylum))){
+      badTaxa <- taxa_names(subset_taxa(ps, is.na(Phylum)))
+      ps <- pop_taxa(ps, badTaxa)
+    }
+    else{
+    return(ps)  
+    }
+  }
+      
+  ps <- del_chl(ps)
+  ps <- del_mit(ps)
+  ps <- del_eu(ps)
+  ps <- del_phy(ps)
+
+  return(ps)
+}
+
+ps.f <- delete_mit_chl_eu(ps)
+writeXStringSet(ps.f@refseq, file="ref_filt.fasta")
+```
+
+```{r}
+ps.f
+```
+
+```{r}
+ps
+```
+
+```{r}
+map <- map %>%  mutate_if(sapply(map, is.character), as.factor)
+sample_data(ps.f) <- map
+```
+
+
+```{r, message=FALSE,echo=TRUE, fig.height=8, fig.width=12}
+# Plot alpha-diversity by selected metric
+plot_alpha <- function(ps, metric, group) {
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot(, fill="#4DBBD5B2", alpha=0.4) +
+    geom_point(size=1.2, alpha=0.3) + 
+    theme_light() + scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x=element_blank(),
+          text = element_text(size=20)) +
+    labs(y=paste("alpha-diversity index")) 
+}
+
+plot_alpha(ps.f, c("Observed","Shannon","InvSimpson"), "Repeat") 
+
+```
+
+
+```{r,fig.height=10, fig.width=8, results=FALSE}
+
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    # my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata)
+    return(amp.ps)
+}
+
+
+amp <- phyloseq_to_amp(ps.f)
+amp_heatmap(amp,tax_show = 30, group_by = "Repeat", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Phylum") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+amp
+```
+```{r}
+as.data.frame(ps.f@tax_table@.Data)
+ps.f@sam_data
+```
+
+```{r, message=FALSE,echo=TRUE, fig.height=6, fig.width=8}
+
+library(phyloseq)
+library(ggplot2)
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Id"] <-unlist(rownames(physeq@sam_data))
+  reads.summary["Site"] <- physeq@sam_data$Repeat
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + 
+    geom_point(aes(y=otus, x=log2(reads), color=Site),size=3) + 
+    geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Site, "_", Id))) + 
+    theme_bw() +
+    # geom_smooth(aes(y=otus, x=log2(reads), fill=Site, color=Site),method=lm, se=FALSE, ymin = 1) + 
+    scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.))
+  # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  return(p1)
+}
+
+
+ps.f <- prune_samples(! sample_data(ps.f)$Repeat %in% c("Nal_B_3","Nal_B_2"), ps.f)
+
+
+
+plot_rich_reads_samlenames_lm(ps.f)
+saveRDS(ps.f, "ps.f")
+
+
+```
+
+
+

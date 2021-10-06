@@ -8,7 +8,6 @@ output: html_document
 
 knitr::opts_chunk$set(echo = TRUE)
 knitr::opts_knit$set(root.dir = "~/storage/cellulolit/16.3/")
-
 ```
 
 
@@ -46,6 +45,7 @@ fnRs <- sort(list.files(path, pattern="_R2_001.fastq.gz", full.names = TRUE))
 
 fnFs
 fnRs
+list.files()
 ```
 
 
@@ -125,5 +125,639 @@ briefToSeq.names <- as.list(rownames(briefToSeq.df))
 write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
 
 write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+ps@sam_data
+```
+
+### Filter non ident and chloroplasts
+
+```{r}
+
+#read map file
+map <- read_tsv("map.cel.16.csv")
+map <- column_to_rownames(map, "ID")
+map
+
+#read taxa file
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
+taxa
+
+#read otu file
+filt.otu <- read.csv("otu_table.txt" , header=TRUE, sep="\t")
+filt.otu
+colnames(filt.otu)[1] <- "ID"
+filt.otu <- column_to_rownames(filt.otu, "ID")
+filt.otu
+
+sample.names <- sapply(strsplit(colnames(filt.otu), "cellulolit."), `[`, 2)
+sample.names
+
+
+library(naturalsort)
+
+filt.otu <- filt.otu[c(naturalsort(colnames(filt.otu)))]
+filt.otu
+colnames(filt.otu) <- rownames(map)
+filt.otu
+# class(filt.otu) <- "numeric"
+
+filt.otu <- as.matrix(filt.otu)
+filt.otu <- t(filt.otu)
+rownames(filt.otu) <- sample.names
+rownames(map)
+
+
+ps <- phyloseq(otu_table(filt.otu, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa))
+
+track <- read_tsv("track.tsv")
+
+ps <- merge_phyloseq(ps, refseq(readDNAStringSet("rep_seq.fasta")))
+colnames(ps@tax_table)
 
 ```
+
+
+```{r}
+
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl_eu <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Kingdom == "Eukaryota"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, is.na(Phylum)))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+saveRDS(ps.f, file = "ps_f.rds")
+
+ps.f <- delete_mit_chl_eu(ps)
+
+ps
+ps.f
+
+library(DECIPHER)
+dna <- readDNAStringSet("ref_filt.fasta")
+head(dna)
+alignment <- AlignSeqs(DNAStringSet(dna), anchor=NA,verbose=FALSE, processors = 50)
+
+writeXStringSet(alignment, file="al_d.fasta")
+
+
+
+writeXStringSet(ps.f@refseq, file="ref_filt.fasta")
+
+```
+
+
+```{r}
+
+tree <- read_tree(treefile="al_d.fasta.contree")
+ps.f <- merge_phyloseq(ps.f, phy_tree(tree))
+saveRDS(ps.f, file = "ps_f.rds")
+ps.f <- readRDS("ps_f.rds")
+
+```
+
+
+### data add new columns to meta
+
+```{r}
+
+map_f <- data.frame(ps.f@sam_data)
+map_f
+
+map_f <- map_f %>%  
+  mutate_if(sapply(map_f, is.character), as.factor) %>% 
+  mutate(Association = as.factor(as.character(Association)))
+
+map_f
+map_f <- map_f %>%  
+  mutate_if(sapply(map_f, is.character), as.factor) %>% 
+  mutate(Association = as.factor(as.character(Association))) %>% 
+  mutate(Substrate = ifelse(Association == "29", "sawdust", ifelse(Association == "46", "birch_leaves", "oat_straw")))
+
+ps.f@sam_data <- sample_data(map_f)
+ps.f@sam_data 
+
+```
+
+###  trees sufferings
+
+```{r}
+
+library(ggtree)
+library(gtools)
+
+ps_nal <- readRDS(file = "~/storage/nal/ps_f.rds")
+ps_nal_archaea <- prune_taxa("Arheae" %in% ps_nal@tax_table@.Da, ps_nal)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+archaea_nal <- taxa_names(subset_taxa(ps_nal, Kingdom == "Archaea"))
+ps_nal_archaea <- prune_taxa(archaea_nal, ps_nal)
+ps_nal_archaea@tax_table
+dna <- readDNAStringSet("ref_filt.fasta")  
+mixedrank = function(x) order(gtools::mixedorder(x))
+top_archaea <- as.data.frame(ps_nal_archaea@tax_table@.Data) %>% rownames_to_column("ID") %>%  arrange(mixedrank(ID)) %>% head(10) %>% pull(ID)
+only_top_ps <- prune_taxa(top_archaea, ps_nal)
+ar_reps <- only_top_ps@refseq
+arch_names <- paste0(rep("root_", 10), c(1:10))
+names(ar_reps) <- arch_names
+dna <- readDNAStringSet("ref_filt.fasta")
+alignment <- AlignSeqs(only_top_ps, anchor=NA,verbose=FALSE, processors = 50)
+writeXStringSet(alignment, file="al_d.fasta")
+all_rep <- c(dna, ar_reps)
+al_with_root <- AlignSeqs(all_rep, anchor=NA,verbose=FALSE, processors = 50)
+writeXStringSet(al_with_root, file="al_d_root.fasta")
+arch_names
+
+```
+
+### The newly contucted tree import
+
+```{r, fig.height=12, fig.width=9}
+
+list.files()
+ps_f <-  readRDS("ps_f.rds")
+ps_f
+tree <- read_tree(treefile="al_d_root.fasta.contree")
+ps.f@phy_tree <- tree
+saveRDS(ps.f, file = "ps_f.rds")
+ps.f@phy_tree <- ape::root(ps.f@phy_tree, outgroup="root_9")
+plot_tree(ps.f, nodelabf=nodeplotboot(), ladderize="left", color="Phylum")
+
+write.tree(ps.f@phy_tree, file='rooted.tree')
+list.files()
+ps_f@sam_data
+
+```
+
+
+```{r, fig.height=12, fig.width=9}
+
+ps.f <- readRDS(file = "ps_f.rds")
+ps.f@sam_data
+
+tree <- read_tree(treefile="al_d.fasta.contree")
+ps.f.longroot <- ps.f
+ps.f@phy_tree <- tree
+
+plot_tree(ps.f, nodelabf=nodeplotboot(), ladderize="left", color="Substrate")
+
+```
+
+```{r}
+
+library(ape)
+
+pick_new_outgroup <- function(tree.unrooted){
+  # tablify parts of tree that we need.
+  treeDT <- 
+    cbind(
+      data.table(tree.unrooted$edge),
+      data.table(length = tree.unrooted$edge.length)
+    )[1:Ntip(tree.unrooted)] %>% 
+    cbind(data.table(id = tree.unrooted$tip.label))
+  # Take the longest terminal branch as outgroup
+  new.outgroup <- treeDT[which.max(length)]$id
+  return(treeDT)
+}
+
+pick_new_outgroup(ps.f@phy_tree) %>% arrange(length)
+pick_new_outgroup(ps.f@phy_tree)
+ps.f@phy_tree <- ape::root(ps.f@phy_tree, outgroup=pick_new_outgroup(ps.f@phy_tree), resolve.root=TRUE)
+ps.f@phy_tree <- ape::root(ps.f@phy_tree, outgroup="root_9")
+
+
+ps.f <- pop_taxa(ps.f, arch_names)
+ps <- pop_taxa(ps, badTaxa)
+ps.f@phy_tree
+
+
+```
+
+```{r}
+
+ps.f - readRDS(file = "")
+
+```
+
+```{r,fig.height=9, fig.width=8, results=FALSE}
+
+rooted_tree <- read_tree(treefile="rooted.tree")
+ps.f.rooted <- ps.f
+rooted_tree
+ps.f.rooted@phy_tree <- rooted_tree
+plot_tree(ps.f, nodelabf=nodeplotboot(), ladderize="left", color="Substrate")
+
+```
+
+
+```{r}
+
+ps_vst <- function(ps){
+  diagdds = phyloseq_to_deseq2(ps, ~ Repeats)                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+ps.varstab <- ps_vst(ps.f)
+
+```
+
+```{r,fig.height=5, fig.width=12, results=FALSE}
+
+ps <- ps.varstab
+ps.rand <- rarefy_even_depth(ps)
+
+ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
+ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
+  
+  #plotting
+  p1 <-  plot_ordination(ps, ordination.b, type="sample", color="Substrate", title="Bray-Curtis", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+
+  p2 <-  plot_ordination(ps, ordination.u, type="sample", color="Substrate", title="UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3)
+  
+  p3 <-  plot_ordination(ps, ordination.w, type="sample", color="Substrate", title="Weighted UniFrac",
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+  #merge by ggpubr
+  
+  p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "bottom", font.label = list(size = 12, face = "bold", color ="black"))
+  
+p.all
+
+
+```
+
+```{r, fig.height=8, fig.width=8}
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+amp <- phyloseq_to_amp(ps.f)
+amp <- phyloseq_to_amp(ps_f)
+
+amp
+
+amp_heatmap(amp,tax_show = 30, group_by = "Substrate", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Family") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+
+
+```
+
+
+
+```{r}
+taxa_df <- as.data.frame(ps.f@tax_table@.Data)
+taxa_df
+dplyr::filter(taxa_df, Phylum == "Firmicutes")
+
+toString(ps.f@refseq$Seq2)
+
+```
+
+```{r, fig.height=6, fig.width=3}
+# Plot alpha-diversity by selected metric
+plot_alpha <- function(ps, metric, group) {
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) + 
+    theme_light() + scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x=element_blank()) +
+    labs(y=paste("alpha-diversity index")) 
+}
+
+plot_alpha(ps.f, "Observed", "Substrate") 
+
+
+```
+
+
+```{r}
+
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Repeat"] <-unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "d.16s.", 2), function(x) x[[2]]))
+  reads.summary["Site"] <- physeq@sam_data$Association
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + geom_point(aes(y=otus, x=log2(reads), color=Repeats),size=3) + geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Repeats, "_", Repeat))) + theme_bw()+
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Repeats, color=Repeats),method=lm, se=FALSE, ymin = 1) + scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+  # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+  return(p1)
+}
+
+plot_rich_reads_samlenames_lm(ps.f)
+
+
+physeq <- ps.f
+unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "d.16s.", 2), function(x) x[[2]]))
+```
+```{r}
+
+ps.f@sam_data
+
+```
+```{r}
+
+list.files(path)
+
+```
+
+### adding negative control from its dataset
+
+```{r}
+
+path = "/home/gladkov/storage/cellulolit/its/dada2_pipeline/in"
+
+neg_f_f <- list.files(path, pattern="Control-its2-Neg_S376_L001_R1_001.fastq.gz", full.names = TRUE)
+neg_r_f <- list.files(path, pattern="Control-its2-Neg_S376_L001_R2_001.fastq.gz", full.names = TRUE)
+
+plotQualityProfile(neg_f_f)
+
+```
+
+```{r}
+
+plotQualityProfile(neg_r_f)
+
+```
+
+```{r}
+
+ps.f
+
+```
+
+
+```{r}
+
+sample.names <- sapply(strsplit(basename(neg_f_f), "_"), `[`, 1)
+
+filtFs <- file.path(path, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(path, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+neg_r_f
+neg_f_f
+
+out <- filterAndTrim(neg_f_f, filtFs, neg_r_f, filtRs, truncLen=c(180,150), trimLeft=c(19,20), maxN=0, maxEE=c(4,6), rm.phix=TRUE, compress=TRUE, multithread=mult)
+
+errF <- learnErrors(filtFs, multithread=mult)
+errR <- learnErrors(filtRs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult)
+dadaRs <- dada(derepRs, err=errR, multithread=mult)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+dim(seqtab)
+table(nchar(getSequences(seqtab)))
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq) 
+
+
+
+taxa.dada2 <- assignTaxonomy(briefToSeq,path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+track <- cbind(out, sapply(dadaFs, getN), sapply(dadaRs, getN), sapply(mergers, getN), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+
+
+st.brief.t.df <- data.frame(t(st.brief))
+
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+
+
+```
+
+```{r}
+st.brief.t.df
+```
+
+
+
+```{r}
+
+taxa
+
+```
+
+In 16S negative control only eukariota can be found
+In Its neg control - really low number of TM7a(Saccharimonadaceae) and Nitrososphaera
+
+
+```{r}
+install.packages('GOplot')
+```
+
+```{r}
+
+#read map file
+map <- read_tsv("map.fake.csv")
+map <- column_to_rownames(map, "ID")
+map
+
+#read taxa file
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
+taxa
+
+#read otu file
+filt.otu <- read.csv("fake_otu" , header=TRUE, sep="\t")
+filt.otu
+colnames(filt.otu)[1] <- "ID"
+filt.otu <- column_to_rownames(filt.otu, "ID")
+filt.otu
+
+sample.names <- sapply(strsplit(colnames(filt.otu), "cellulolit."), `[`, 2)
+sample.names
+
+
+library(naturalsort)
+
+filt.otu <- filt.otu[c(naturalsort(colnames(filt.otu)))]
+filt.otu
+colnames(filt.otu) <- rownames(map)
+filt.otu
+# class(filt.otu) <- "numeric"
+
+filt.otu <- as.matrix(filt.otu)
+filt.otu <- t(filt.otu)
+rownames(filt.otu) <- sample.names
+rownames(map)
+
+
+ps.fake <- phyloseq(otu_table(filt.otu, taxa_are_rows=FALSE), 
+               sample_data(map))
+
+ps.fake
+track <- read_tsv("track.tsv")
+
+ps <- merge_phyloseq(ps, refseq(readDNAStringSet("rep_seq.fasta")))
+
+ps.fake@sam_data
+```
+
+
+```{r}
+plot_alpha <- function(ps, metric, group) {
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) + 
+    theme_light() + scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x=element_blank()) +
+    labs(y=paste("alpha-diversity index - 16S")) 
+}
+
+p22 <-  plot_alpha(ps.f, "Observed", "Association") 
+
+p22 
+
+plot_alpha_fake <- function(ps, metric, group) {
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  plot_richness(ps_a, x=group, measures=metric) +
+    geom_point(size=1.2, alpha=0.3) + 
+    theme_light() + scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x=element_blank()) +
+    labs(y=paste("alpha-diversity index - glyc")) 
+  
+}
+
+p220 <-  plot_alpha(ps.rand, "Observed", "Association") 
+
+
+p22 + p220
+```
+
+
+
+```{r}
+ps.rand <- rarefy_even_depth(ps.fake)
+ordination.b <- ordinate(ps.rand, "NMDS", "bray")
+
+  
+  #plotting
+  p1 <-  plot_ordination(ps.fake, ordination.b, type="sample", color="Substrate",  title="glycosylases",
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) +  theme(legend.text=element_text(size=8))
+  
+
+  p2 <-  plot_ordination(ps, ordination.u, type="sample", color="Substrate", title="UniFrac", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3)
+  
+  p3 <-  plot_ordination(ps, ordination.w, type="sample", color="Substrate", title="Weighted UniFrac",
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+  
+  #merge by ggpubr
+  
+  p.all <- ggarrange(p1, p2, p3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "bottom", font.label = list(size = 12, face = "bold", color ="black"))
+
+p1
+
+ps <- ps.varstab
+
+
+ordination.b.16 <- ordinate(ps.varstab, "NMDS", "bray")
+
+  
+  #plotting
+p2 <-  plot_ordination(ps, ordination.b.16, type="sample", color="Substrate", title="16S", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3)  +  theme(legend.text=element_text(size=15))
+  
+
+  
+  #merge by ggpubr
+  
+  p.all <- ggarrange(p1, p2,  ncol = 2 , nrow = 1, common.legend = TRUE, legend = "bottom", font.label = list(size = 15, face = "bold", color ="black"))
+
+  
+p.all
+
+```
+
+
+
+```{r}
+map_f <- data.frame(ps.fake@sam_data)
+map_f
+
+map_f <- map_f %>%  
+  mutate_if(sapply(map_f, is.character), as.factor) %>% 
+  mutate(Association = as.factor(as.character(Association)))
+
+map_f
+map_f <- map_f %>%  
+  mutate_if(sapply(map_f, is.character), as.factor) %>% 
+  mutate(Association = as.factor(as.character(Association))) %>% 
+  mutate(Substrate = ifelse(Association == "c29", "sawdust", ifelse(Association == "c49", "birch_leaves", "oat_straw")))
+
+ps.fake@sam_data <- sample_data(map_f)
+ps.fake@sam_data 
+```
+
+
+

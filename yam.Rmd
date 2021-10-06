@@ -142,6 +142,7 @@ track %>% as.data.frame() %>% arrange(input)
 track %>% as.data.frame()
 sample_names <- rownames(track)
 sample_names
+
 ```
 
 
@@ -167,7 +168,30 @@ ps <- phyloseq(otu_table(t(otus), taxa_are_rows=FALSE),
 
 ps
 
-# write.table(mapp_wrum_zhena, file="amazinf")
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl_eu <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Kingdom == "Eukaryota"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, is.na(Phylum)))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+ps.f <- delete_mit_chl_eu(ps)
+
+saveRDS(ps.f, file = "ps_f.rds")
+
+ps.f@sam_data
+
 ```
 
 
@@ -193,18 +217,20 @@ plot_rich_reads_samlenames_lm <- function(physeq){
   return(p1)
 }
 
-plot_rich_reads_samlenames_lm(ps)
+plot_rich_reads_samlenames_lm(ps.f)
 
 ```
 
 
 
 
-```{r}
+```{r, fig.height=7.5, fig.width=8}
 
+ps.f.nc <- prune_samples(sample_data(ps.f)$Geo != c("Lab"), ps.f)
+ps.f.nc  <- prune_taxa(taxa_sums(ps.f.nc) > 0, ps.f.nc)
 
 ps@sam_data
-ordination.b.p <- phyloseq::ordinate(ps, "PCoA", "bray")
+ordination.b.p <- phyloseq::ordinate(ps.f.nc, "NMDS", "bray")
 
 plot_ordination(ps, ordination.b.p , type="sample", color="Type", axes = c(1,2) ) + 
     theme_bw() + 
@@ -212,8 +238,85 @@ plot_ordination(ps, ordination.b.p , type="sample", color="Type", axes = c(1,2) 
     geom_point(size = 3) +
     theme(legend.position="bottom")
 
+plot_ordination(ps.f.nc, ordination.b.p, type="sample", color="Type", title="NMDS - Bray-Curtis", axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10), legend.position = "none") + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes(group = Type, label = Type), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+
+```
+```{r, fig.height=8, fig.width=14}
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata)
+    return(amp.ps)
+}
+
+amp <- phyloseq_to_amp(ps.f.nc)
+
+p_l <- amp_heatmap(amp,tax_show = 30, group_by = "Type", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Family") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+p_r <- amp_heatmap(amp,tax_show = 12, group_by = "Type", tax_aggregate = "Phylum", tax_class = "Proteobacteria") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+
+ggarrange(p_l, p_r, ncol = 2 , nrow = 1, common.legend = TRUE, legend = "none", font.label = list(size = 12, face = "bold", color ="black"))
 ```
 
+
+```{r,message=FALSE,echo=TRUE, fig.height=5, fig.width=5.8}
+
+dist <- phyloseq::distance(ps.f.nc, method = "bray")
+groups <- ps.f.nc@sam_data$Type
+mod <- vegan::betadisper(dist, groups)
+mod.box <- boxplot(mod)
+TukeyHSD(mod)
+?TukeyHSD.betadisper
+permutest(mod, permutations = 999)
+anova(mod)
+plot(TukeyHSD(mod))
+?vegan::betadisper
+```
+
+
+
+```{r}
+plot_alpha <- function(ps, metric, group) {
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) + 
+    theme_light() + scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1),
+          axis.title.x=element_blank()) +
+    labs(y=paste("alpha-diversity index")) 
+}
+
+plot_alpha(ps.f.nc,  c("Observed", "InvSimpson", "Shannon"), "Type") 
+
+
+
+```
+
+```{r}
+
+
+
+
+
+```
 
 
 ```{r}
@@ -227,13 +330,35 @@ taxa_df %>% mutate(sum_reads = c(ps.buff@otu_table)) %>% arrange(sum_reads)
 ```
 
 
+```{r}
+alpha <- estimate_richness(ps.f.nc, measures=c("Observed", "InvSimpson", "Shannon"))
+
+mod$distances
+
+cor.test(alpha$Observed, mod$distances)
+
+```
+
 
 ```{r}
 
 
 
+
 ```
 
+```{r}
 
+
+
+
+```
+
+```{r}
+
+
+
+
+```
 
 
