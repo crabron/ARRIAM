@@ -316,6 +316,8 @@ ps
 ps.f@sam_data
 
 ```
+
+
 ```{r,fig.height=6, fig.width=10}
 
 pssd2veg <- function(physeq) {
@@ -442,8 +444,12 @@ ps.nc@sam_data
 #### vst dataset
 
 ```{r}
-ps_vst <- function(ps){
-  diagdds = phyloseq_to_deseq2(ps, ~ Site)                  
+ps_vst <- function(ps, factor){
+  
+  require(DESeq2)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))              
   diagdds = estimateSizeFactors(diagdds, type="poscounts")
   diagdds = estimateDispersions(diagdds, fitType = "local") 
   pst <- varianceStabilizingTransformation(diagdds)
@@ -579,11 +585,11 @@ phyloseq_to_amp <- function(ps){
 }
 
 
-amp <- phyloseq_to_amp(ps.f2)
+amp <- phyloseq_to_amp(ps.f)
 ps.f2@sam_data
 ```
 
-### Split
+### Split ps
 
 ```{r}
 
@@ -599,21 +605,32 @@ ps.12  <- prune_taxa(taxa_sums(ps.12) > 0, ps.12)
 ps.nc <- prune_samples(sample_data(ps.f)$Soil %in% c("meadow_humus-cryptogley"), ps.f)
 ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
 
-ps.f
 ps.cc <- prune_samples(sample_data(ps.f)$Soil %in% c("Carbonate_chernozem"), ps.f)
 ps.cc  <- prune_taxa(taxa_sums(ps.cc) > 0, ps.cc)
+
+ps.cc2 <- prune_samples(sample_data(ps.f)$Site %in% c("N1", "N3", "N5", "N6", "N7"), ps.f)
+ps.cc2  <- prune_taxa(taxa_sums(ps.cc2) > 0, ps.cc2)
 
 ps.n13 <- prune_samples(sample_data(ps.f)$Site %in% c("N1", "N3"), ps.f)
 ps.n13  <- prune_taxa(taxa_sums(ps.n13) > 0, ps.n13)
 
+ps.cc2 <- prune_samples(sample_data(ps.f)$Site %in% c("N2", "N4", ""), ps.f)
+ps.cc2  <- prune_taxa(taxa_sums(ps.cc2) > 0, ps.cc2)
+
+ps.si <- prune_samples(sample_data(ps.f)$Soil %in% c("Carbonate_chernozem"), ps.f)
+ps.si  <- prune_taxa(taxa_sums(ps.si) > 0, ps.si)
+
 ps.cc <- prune_samples(sample_data(ps.f)$Soil %in% c("Carbonate_chernozem"), ps.f)
 ps.cc  <- prune_taxa(taxa_sums(ps.cc) > 0, ps.cc)
 
+ps.cc <- prune_samples(sample_data(ps.f)$Soil %in% c("Carbonate_chernozem"), ps.f)
+ps.cc  <- prune_taxa(taxa_sums(ps.cc) > 0, ps.cc)
 
 ps.f@sam_data
+
 ```
 
-### heatmappa
+### Heatmappa
 
 ```{r, fig.height=10, fig.width=12}
 
@@ -682,6 +699,7 @@ amp
 
 
 ```{r, message=FALSE, echo=FALSE}
+
 des_w_simper <- function(ps, factor){
   require(DESeq2)
   require(vegan)
@@ -703,7 +721,6 @@ des_w_simper <- function(ps, factor){
 
 ```
 
-### Amasing DESeq
 
 
 ```{r, ,fig.height=4, fig.width=10}
@@ -725,24 +742,32 @@ f1 <- ggplot(des.nc.filt, aes(x=log2FoldChange, y=baseMean)) +
   geom_vline(xintercept = 0, size = 0.75, color = "red", alpha=0.3) +
   geom_point() +
   theme_bw() 
+
 f2 <- ggplot(des.cc.filt, aes(x=log2FoldChange, y=baseMean)) +
   geom_vline(xintercept = 0, size = 0.75, color = "red", alpha=0.3) +
   geom_point() +
-  theme_bw() 
+  theme_bw()
+
 f3 <- ggplot(des.so.filt, aes(x=log2FoldChange, y=baseMean)) +
   geom_vline(xintercept = 0, size = 0.75, color = "red", alpha=0.3) +
   geom_point() +
   theme_bw() 
 
+length(rownames(des.nc.filt))
+length(rownames(des.cc.filt))
+class(rownames(des.nc.filt))
+row.des <- c(rownames(des.nc.filt), rownames(des.cc.filt))
+row.des.so <- rownames(des.so.filt)
+row.des <- unique(row.des)
+length(row.des)
+
 ggarrange(f1, f2, f3, labels = c("Луговая, B/Q", "Чернозём, B/Q", "Луговая/Чернозём"),nrow = 1)
 
-
+write.table(des.so.filt, file = "des_so_filt.tsv", sep= "\t", col.names = NA, quote=FALSE)
 write.table(des.nc.filt, file = "des_nc_filt.tsv", sep= "\t", col.names = NA, quote=FALSE)
 write.table(des.cc.filt, file = "des_cc_filt.tsv", sep= "\t", col.names = NA, quote=FALSE)
 
 ```
-
-
 
 
 
@@ -775,6 +800,8 @@ p.all
 p.beta <- beta_custom_norm_NMDS_elli(ps.f)
 ps.varstab@sam_data$Soil
 ```
+
+
 
 ```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=18}
 
@@ -817,6 +844,7 @@ list.files()
 
 
 ```
+
 
 ### Decontam
 
@@ -868,18 +896,22 @@ Seq703
 
 
 ```{r}
+
 table(contamdf_ps$contaminant)
 cont <- contamdf.freq[contamdf_ps$contaminant == "TRUE",] 
 as.data.frame(ps.f@tax_table[rownames(cont),])
+
 ```
 
 Seq1123
 Seq1461
 
 ```{r}
+
 table(contamdf_ps_vst$contaminant)
 cont_vst <- contamdf.freq[contamdf_ps_vst$contaminant == "TRUE",] 
 as.data.frame(ps.f@tax_table[rownames(cont_vst),])
+
 ```
 
 
@@ -909,7 +941,7 @@ map <- read_tsv("mapping_nalchic_new.tsv",
                 )
               )
 map <- column_to_rownames(map, "Sample")
-ps <- read_rds("ps_f.rds")
+ps <- read_rds("ps_f.rds")l
 site_column <- ps@sam_data %>% 
   as.data.frame() %>% 
   pull('Site')
@@ -1001,8 +1033,8 @@ map
 ps.f@sam_data
 84
 
-
 ```
+
 
 ### CCA again
 
@@ -1161,6 +1193,7 @@ vif.cca(cca_w_varstab_asv)
 
 ```
 
+
 #### CCA for taxons - family level
 
 ```{r echo=TRUE, fig.height=9, fig.width=9, message=FALSE}
@@ -1223,9 +1256,10 @@ kate.ggcca.species(cca_w_varstab_family, physeq)
 cca_w_varstab_family$CCA
 ```
 
+
 #### ASV level
 
-```{r echo=TRUE, fig.height=9, fig.width=9, message=FALSE}
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE}
 
 ps.ff <-  filter_taxa(ps.f, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
 ps.varstab <- ps_vst(ps.ff)
@@ -1247,10 +1281,8 @@ metadata <- as(sample_data(physeq), "data.frame")
 
 
 # cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  Humidity + pH + C_org + C +  K + NH4 + NO3 + temp,  data=metadata)
-cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  pH + C_org + NH4 + temp,  data=metadata)
-
-
-
+# cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  pH + C_org + NH4 + temp,  data=metadata)
+cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  pH + C_org + C +  K + NH4 + NO3 + temp + P,  data=metadata)
 
 wa <- as.data.frame(cca_w_varstab_asv$CCA$v) %>% 
   rownames_to_column("ID")
@@ -1261,9 +1293,12 @@ taxa.pruned <- taxa.pruned %>%  mutate_all(as.character)
 # old.tips <- tree$tip.label
 # matches <- regmatches(tree$tip.label, gregexpr("[[:digit:]]+", tree$tip.label))
 # taxa.pruned$number <- as.numeric(unlist(matches))
+
+# Shitty taxa formating part
 taxa.pruned$taxa <- ifelse(is.na(taxa.pruned$Genus),
-                           ifelse(is.na(taxa.pruned$Family), ifelse(is.na(taxa.pruned$Order), ifelse(is.na(taxa.pruned$Class), taxa.pruned$Phylum, taxa.pruned$Class) , taxa.pruned$Order), taxa.pruned$Family), 
-                           taxa.pruned$Genus)
+                            ifelse(is.na(taxa.pruned$Family),
+                            ifelse(is.na(taxa.pruned$Order), 
+                            ifelse(is.na(taxa.pruned$Class), taxa.pruned$Phylum, taxa.pruned$Class) , taxa.pruned$Order), taxa.pruned$Family), taxa.pruned$Genus)
 taxa.pruned[taxa.pruned == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
 taxa.pruned[taxa.pruned == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Pararhizobium"
 
@@ -1272,16 +1307,20 @@ taxa.pruned$taxa2 <- ifelse(is.na(taxa.pruned$Species), with(taxa.pruned, paste0
 taxa.pruned$phylum_pro <- ifelse(taxa.pruned$Phylum == "Proteobacteria", with(taxa.pruned, paste0(taxa.pruned$Class)), with(taxa.pruned, paste0(taxa.pruned$Phylum)))
 taxa.pruned$Label <- paste0(taxa.pruned$ID, "_", taxa.pruned$taxa2)
 
+
 wa <- full_join(wa, taxa.pruned, by="ID") %>% 
   mutate(Score = "sites")
+wa
 
-
+#For the top 50 most abundant taxa, skip if use des res
 sw <- summarize_all(as.data.frame(ps.varstab@otu_table), sum)
 head_asv <- as_tibble(t(sw), rownames = "ID") %>% 
-  arrange(desc(V1)) %>% top_n(n = 50) %>% 
+  arrange(desc(V1)) %>% top_n(n = 100) %>% 
   pull(ID)
 
 wa <- filter(wa, ID %in% head_asv)
+wa <- filter(wa, ID %in% row.des)
+wa <- filter(wa, ID %in% row.des.so)
 
 wa
 
@@ -1292,18 +1331,26 @@ biplot <- rownames_to_column(biplot, "Label") %>%
 
 fdat_amazing <- plyr::rbind.fill(biplot, wa) %>% 
   mutate(Label = as.factor(Label))
+fdat_amazing <- fdat_amazing %>%
+  mutate(label_size = ifelse(Score == "biplot", 4.5, 3))
 fdat_amazing
 
 p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
   geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2)) + 
-  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
-  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label, colour = phylum_pro),size=4) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red", arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label, colour = phylum_pro), size=fdat_amazing$label_size) + 
+  xlab(paste0(round(cca$CCA$eig[1], 3)*100, "% CCA1")) +
+  ylab(paste0(round(cca$CCA$eig[2], 3)*100, "% CCA2")) +
+  grids(linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
   theme(legend.position = "top", panel.background = element_rect(fill = "white", colour = "grey50"))
   # geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
   
 p2 <- p + scale_color_manual(values=c("#5EA09E", "#6B440B", "#F499C2", "#7DA9D8", "#FEF898", "#0000FE", "#F27204", 
-                                "#FE0000", "#FEFF00", "#02F30E", "#F89679", "black","salmon"))
+                                "#FE0000", "#FEFF00", "#02F30E", "#F89679", "black","salmon", "red", "yellow", "orange"))
 p2
+p
 return(p)
 
 
@@ -1346,12 +1393,21 @@ p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) +
 }
 
 
-kate.ggcca.species(cca_w_varstab_family, physeq) 
+kate.ggcca.species(cca_w_varstab_asv, physeq) 
 cca_w_varstab_family$CCA
 
 
 ```
 
+
+```{r}
+
+anova(cca_w_varstab_asv, parallel = 10)
+anova(cca_w_varstab_asv, by="terms", parallel = 10)
+anova(cca_w_varstab_asv, by="mar", parallel = 10)
+vif.cca(cca_w_varstab_asv)
+
+```
 
 #### Family level with phylum color
 
@@ -1361,8 +1417,9 @@ ps.ff <-  filter_taxa(ps.f, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
 ps.varstab <- ps_vst(ps.ff)
 ps.varstab.merged <- phyloseq::merge_samples(ps.varstab, "Repeat")
 ps.varstab.merged.family <- tax_glom(ps.varstab.merged, taxrank="Family")
-
+ps.varstab.merged@sam_data
 physeq <- ps.varstab.merged.family
+physeq <- ps.varstab.merged
 
 veganifyOTU <- function(physeq){
   require(phyloseq)
@@ -1379,7 +1436,7 @@ metadata
 
 # cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  Humidity + pH + C_org + C +  K + NH4 + NO3 + temp,  data=metadata)
 cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  pH + C_org + NH4 + temp,  data=metadata)
-
+cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  pH + C_org + C +  K + NH4 + NO3 + temp + P,  data=metadata)
 
 
 
@@ -1393,12 +1450,14 @@ taxa.pruned <- taxa.pruned %>%  mutate_all(as.character)
 # old.tips <- tree$tip.label
 # matches <- regmatches(tree$tip.label, gregexpr("[[:digit:]]+", tree$tip.label))
 # taxa.pruned$number <- as.numeric(unlist(matches))
-taxa.pruned$phylum_pro <- ifelse(taxa.pruned$Phylum == "Proteobacteria", with(taxa.pruned, paste0(taxa.pruned$Class)), with(taxa.pruned, paste0(taxa.pruned$Phylum)))
+taxa.pruned$phylum_pro <- ifelse(taxa.pruned$Phylum == "Proteobacteria", 
+                                 with(taxa.pruned, paste0(taxa.pruned$Class)), 
+                                 with(taxa.pruned, paste0(taxa.pruned$Phylum)))
 taxa.pruned$Label <- paste0(taxa.pruned$Family)
 
 wa <- full_join(wa, taxa.pruned, by="ID") %>% 
   mutate(Score = "sites")
-
+wa
 
 sw <- summarize_all(as.data.frame(ps.varstab@otu_table), sum)
 head_asv <- as_tibble(t(sw), rownames = "ID") %>% 
@@ -1420,10 +1479,17 @@ fdat_amazing
 
 p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
   geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2)) + 
-  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
-  geom_text_repel(data = fdat_amazing %>% dplyr::filter(Score == "sites"), aes(x=CCA1, y=CCA2, label= Label, colour = phylum_pro),size=4) + 
-  geom_text_repel(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x=CCA1, y=CCA2, label= Label),size=4) +
-  theme(legend.position = "top", panel.background = element_rect(fill = "white", colour = "grey50"))
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), 
+               aes(x = 0, xend = CCA1, y = 0, yend = CCA2), 
+               alpha=0.8, 
+               color = "red",
+               arrow = arrow(angle = 3)) +
+  geom_text_repel(data = fdat_amazing %>% dplyr::filter(Score == "sites"), 
+                  aes(x=CCA1, y=CCA2, label= Label, colour = phylum_pro),size=4) + 
+  geom_text_repel(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), 
+                  aes(x=CCA1, y=CCA2, label= Label),size=4) +
+  theme(legend.position = "top", 
+        panel.background = element_rect(fill = "white", colour = "grey50"))
   # geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
   
 p2 <- p + scale_color_manual(values=c("#5EA09E", "#6B440B", "#F499C2", "#7DA9D8", "#FEF898", "#0000FE", "#F27204", 
@@ -1474,8 +1540,10 @@ p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) +
 kate.ggcca.species(cca_w_varstab_family, physeq) 
 cca_w_varstab_family$CCA
 
+pd.ff
 
 ```
+
 
 #### CCA fuck my claster
 
@@ -1514,10 +1582,6 @@ p
 
 
 ```
-
-
-
-
 
 
 ### pls-da
@@ -1846,8 +1910,6 @@ probdata = tibble(site = c("Quarry on Chernozem", "Quarry on Gleyic"),
 <!-- # rivers <- ne_download(scale = 10, type = 'rivers_lake_centerlines', category = 'physical', returnclass = "sf") -->
 <!-- # lakes <- ne_download(scale = 50, type = 'lakes', category = 'physical', returnclass = "sf") -->
 
-
-
  ggplot(data = world) + 
   geom_sf() +
   geom_sf(data = spdf_france_geounit, fill="green",  alpha = 0.1 ) +
@@ -1857,7 +1919,6 @@ probdata = tibble(site = c("Quarry on Chernozem", "Quarry on Gleyic"),
   shape = 20, colour = "red") +
   geom_text(data = probdata, aes(x = xlabel, y = ylabel, label = site), size = 5, colour="red") + 
   theme_bw() 
-
 
 ```
 
@@ -1926,8 +1987,8 @@ p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) +
 
 kate.ggcca.sites(vare.cca)
 
-
 ```
+
 
 ```{r}
 
@@ -1971,7 +2032,6 @@ filter()
 ```
 
 
-
 ```{r}
 
 map_f3 <- data.frame(ps_f2_2@sam_data)
@@ -2003,8 +2063,6 @@ ggplot(data=map_m, aes(Soil, scale(Temperature))) + geom_bo
 xplot(alpha=0.5) + geom_point(alpha=0.5) + theme_bw()
 
 ```
-
-
 
 
 ### CCA statistics
@@ -2091,6 +2149,7 @@ metadata
 
 ```
 
+
 ### NMDS of filtered phyloseq
 
 ```{r, fig.height=10, fig.width=12}
@@ -2105,7 +2164,6 @@ plot_ordination(ps.f, ordination.b, type="sample", color="Site", title="NMDS - B
     geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
 
 ```
-
 
 
 ```{r, fig.height=6, fig.width=7}
@@ -2146,6 +2204,7 @@ plot_ordination(ps_f2, ordination.b, type="sample", color="What", title="NMDS - 
 ps_f2_2@sam_data
 
 ```
+
 ```{r}
 ps.merged@sam_data
 ```
@@ -2251,6 +2310,7 @@ amp_heatmap(amp.sseno, tax_show = 30, group_by = "Site", tax_aggregate = "Family
 
 ```
 
+
 ###Venn
 
 ```{r, message=FALSE,echo=TRUE, fig.height=9, fig.width=9}
@@ -2304,6 +2364,7 @@ ps.f@sam_data
 ```{r}
 
 ```
+
 
 ### philR
 
@@ -2389,8 +2450,6 @@ ggplot(gp.philr.long, aes(x=labels, y=value)) +
 ```
 
 
-
-
 ```{r,  fig.height=9, fig.width=9}
 
 library(ggtree)
@@ -2419,9 +2478,164 @@ annotate_balance(tree, 'n737', p=p, labels = c('n737+', 'n737-'),
 
 ```
 
+
 ```{r, fig.height=12, fig.width=9}
 
 plot_tree(GP, ladderize="left", color="Phylum")
 
+```
+
+
+### distances
+
+```{r}
+
+ps.nc <- prune_samples(sample_data(ps.f)$Soil %in% c("meadow_humus-cryptogley"), ps.f)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+unifrac.nc <- unifrac(ps.nc@otu_table@.Data, ps.nc@phy_tree)
+metadata.medium <- as(sample_data(ps.nc@sam_data), "data.frame")
+adonis2(unifrac.medium ~ Soil , data = metadata.medium)
+
+```
+
+
+### PERMANOVA
+
+```{r}
+
+dist <- phyloseq::distance(ps.nc, "unifrac")
+metadata <- as(sample_data(ps.nc@sam_data), "data.frame")
+adonis( dist ~ Quarry_or_Benchmark, data = metadata)
+
+```
+
+```{r}
+
+dist <- phyloseq::distance(ps.cc2, "unifrac")
+metadata <- as(sample_data(ps.cc2@sam_data), "data.frame")
+adonis( dist ~ Soil, data = metadata)
+
+```
+
+```{r}
+
+dist <- phyloseq::distance(ps.nc, "bray")
+names.nc.b <- subset(ps.nc@sam_data, ps.nc@sam_data$Quarry_or_Benchmark %in% "Benchmark") %>%
+  rownames()
+names.nc.q <- subset(ps.nc@sam_data, ps.nc@sam_data$Quarry_or_Benchmark %in% "Quarry") %>%
+  rownames()
+
+usedist::dist_between_ centroids(dist, names.nc.b, names.nc.q, squared = TRUE)
+
+```
+
+```{r}
+
+dist <- phyloseq::distance(ps.cc2, "bray")
+names.cc.m <- subset(ps.cc2@sam_data, ps.cc2@sam_data$Soil %in% "meadow_humus-cryptogley") %>%
+  rownames()
+names.cc.c <- subset(ps.cc2@sam_data, ps.cc2@sam_data$Soil %in% "Carbonate_chernozem") %>%
+  rownames()
+
+usedist::dist_between_centroids(dist, names.cc.m, names.cc.c, squared = TRUE)
+
+```
+
+
+```{r}
+
+dist <- phyloseq::distance(ps.cc, "unifrac")
+metadata <- as(sample_data(ps.cc@sam_data), "data.frame")
+adonis( dist ~ Quarry_or_Benchmark, data = metadata)
+
+
+ps.cc@sam_data
+```
+
+### more alphass
+
+```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=12}
+
+library(ggpubr)
+
+alpha.custom <- function(ps.f, arrga = "PD"){
+  
+  require(picante)
+  
+  pd <- pd(ps.f@otu_table@.Data, ps.f@phy_tree)
+  
+  pd1 <- estimate_richness(ps.f, measures=c("Observed", "InvSimpson", "Shannon"))
+  pd <- cbind(pd, ps.f@sam_data, pd1 )
+  
+  bmi <- levels(as.factor(pd$Quarry_or_Benchmark))
+  bmi.pairs <- combn(seq_along(bmi), 2, simplify = FALSE, FUN = function(i)bmi[i])
+  p1 <- ggviolin(pd, x = "Quarry_or_Benchmark", y = arrga,
+                 add = "boxplot", fill = "Quarry_or_Benchmark") + stat_compare_means(comparisons = bmi.pairs, method = "wilcox.test") +
+    scale_x_discrete(limits = c("Quarry", "Benchmark")) +
+    theme(axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          text = element_text(size=14))
+  return(p1)
+}
+
+alpha.custom2 <- function(ps.f, arrga = "PD"){
+  
+  require(picante)
+  
+  pd <- pd(ps.f@otu_table@.Data, ps.f@phy_tree)
+  
+  pd1 <- estimate_richness(ps.f, measures=c("Observed", "InvSimpson", "Shannon"))
+  pd <- cbind(pd, ps.f@sam_data, pd1 )
+  
+  bmi <- levels(as.factor(pd$Quarry_or_Benchmark))
+  bmi.pairs <- combn(seq_along(bmi), 2, simplify = FALSE, FUN = function(i)bmi[i])
+  p1 <- ggviolin(pd, x = "Quarry_or_Benchmark", y = arrga,
+                 add = "boxplot", fill = "Quarry_or_Benchmark") + stat_compare_means(comparisons = bmi.pairs, method = "wilcox.test") +
+    scale_x_discrete(limits = c("Quarry", "Benchmark")) +
+    theme(axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          text = element_text(size=14))
+  return(p1)
+}
+
+p.alpha.Cdt.oo <- alpha.custom(ps.cc, arrga = "Observed")
+p.alpha.Cdt.sh <- alpha.custom(ps.cc, arrga = "PD")
+p.alpha.Cdt.is <- alpha.custom(ps.cc, arrga = "Shannon")
+p.alpha.Cdt.pd <- alpha.custom(ps.cc, arrga = "InvSimpson")
+
+p.alpha.Cdt.oo2 <- alpha.custom2(ps.nc, arrga = "Observed")
+p.alpha.Cdt.sh2 <- alpha.custom2(ps.nc, arrga = "PD")
+p.alpha.Cdt.is2 <- alpha.custom2(ps.nc, arrga = "Shannon")
+p.alpha.Cdt.pd2 <- alpha.custom2(ps.nc, arrga = "InvSimpson")
+
+p1 <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.sh,p.alpha.Cdt.is, p.alpha.Cdt.pd , 
+                p.alpha.Cdt.oo2, p.alpha.Cdt.sh2, p.alpha.Cdt.is2, p.alpha.Cdt.pd2,
+                ncol = 4 ,label.x = 0.105, nrow = 2, labels = c("Чернозём", "", "", "", "Луговая"))
+p1
+
+
+``` 
+
+### NO3
+
+```{r}
+
+ps.no3 <- subset_taxa(ps.varstab.merged, taxa_names(ps.varstab) %in% c("Seq70", "Seq71", "Seq161", "Seq170", "Seq171"))
+otus.no3 <- as.data.frame(ps.no3@otu_table)
+otus.no3$NO3 <- ps.no3@sam_data$NO3
+otus.no3
+cor.test(otus.no3$Seq170, otus.no3$NO3, method="spearman")
+```
+
+### shit venns
+
+```{r, fig.height=9, fig.width=9}
+amp <- phyloseq_to_amp(ps.cc)
+amp_venn(amp, group_by = "Quarry_or_Benchmark", normalise = TRUE, cut_a = 0.000001, cut_f=0.000001)
 ```
 
