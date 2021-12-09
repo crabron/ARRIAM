@@ -1,0 +1,542 @@
+---
+title: "All_rnf"
+author: "GrGladkov"
+date: "11/26/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r}
+
+library(phyloseq)
+
+
+```
+
+
+
+```{r}
+
+ps.ufa <- readRDS("/home/alexey/Analysis/PileOfCrap/full_ps.RData")
+ps.ufa@sam_data
+
+ps.komi <- prune_samples(sample_data(ps.ufa)$Project %in% c("Komi_quarry"), ps.ufa)
+ps.komi  <- prune_taxa(taxa_sums(ps.komi) > 0, ps.komi)
+
+ps.komi <- prune_samples(sample_data(ps)$Project %in% c("Komi_quarry"), ps.ufa)
+ps.komi  <- prune_taxa(taxa_sums(ps.komi) > 0, ps.komi)
+
+ps.uhta <- prune_samples(sample_data(ps.ufa)$Location %in% c("Uhta"), ps.ufa)
+ps.uhta  <- prune_taxa(taxa_sums(ps.uhta) > 0, ps.uhta)
+
+ps.vorkuta <- prune_samples(sample_data(ps.ufa)$Location %in% c("Vorkuta"), ps.ufa)
+ps.vorkuta  <- prune_taxa(taxa_sums(ps.vorkuta) > 0, ps.vorkuta)
+
+ps.ufa_reg <- prune_samples(sample_data(ps.ufa)$Project %in% c("Ufa_dumps", "Ufa_reservoir"), ps.ufa)
+ps.ufa_reg  <- prune_taxa(taxa_sums(ps.ufa_reg) > 0, ps.ufa_reg)
+
+ps.komi@sam_data
+
+```
+
+```{r}
+
+ps.bor <- readRDS("/home/alexey/Analysis/2020_Borovichi/ps.RData")
+ps.bor
+
+```
+
+
+```{r}
+ps.nad <- readRDS(file = "~/storage/nadim/nadim2/ps.rds")
+ps.nad <- readRDS("/home/alexey/Analysis/2020_Nadym/ps.RData")
+ps.nad@sam_data
+
+```
+
+
+```{r}
+
+ps.nal <- readRDS("~/storage/nal/ps.f2")
+ps.nal
+
+```
+
+
+```{r}
+
+ps.krim <- readRDS("~/storage/krim_chrono/shit_data/ps.krim_chrono.rds")
+ps.krim <- merge_phyloseq(ps.krim, refseq(readDNAStringSet("~/storage/krim_chrono/shit_data/rep_seq.fasta")))
+ps.krim@sam_data
+
+```
+
+```{r setup, include=FALSE}
+
+ps.kuz <- readRDS("~/storage/kuz/ps.rds")
+ps.kuz@sam_data
+
+```
+
+
+# prefiltration
+
+
+```{r}
+
+head(as.data.frame(ps.bor@otu_table@.Data))
+
+ps.nc <- prune_samples(sample_data(ps)$Soil %in% c("meadow_humus-cryptogley"), ps)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+ps.nal
+
+```
+
+```{r}
+
+l.ps <- list(bor = ps.bor, nal = ps.nal, krim = ps.krim, kuz = ps.kuz, ufa = ps.ufa_reg, komi = ps.komi, nad = ps.nad) 
+l.ps
+
+new.list <- list()
+
+for (x in names(l.ps)) {
+  ps <- l.ps[[x]]
+  ps <- phyloseq(otu_table(ps@otu_table), 
+          sample_data(ps@sam_data),
+          tax_table(ps@tax_table),
+          refseq(ps@refseq))
+  
+  reduced_map <- data.frame(region = rep(x, length(sample_names(ps))),
+                          soil = rep("unknown", length(sample_names(ps))),
+                          row.names = sample_names(ps)
+                          )
+  
+  sample_data(ps) <- reduced_map
+  new.list <- append(new.list, ps)
+}
+
+merger <- function(ps1, ps2){
+ ps.m <- merge_phyloseq(ps1, ps2)
+ return(ps.m)
+}
+
+new_phyloseq <- purrr::reduce(new.list, merger)
+
+```
+
+
+```{r}
+
+ps.ff <-  filter_taxa(new_phyloseq, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
+ps.ff
+ordination.b <- ordinate(new_phyloseq, "PCoE", "bray")
+
+plot_ordination(new_phyloseq, ordination.b, type="sample", color="region", title="Bray-Curtis", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 10)) + geom_point(size = 3) 
+
+levels(new_phyloseq@sam_data$region)
+```
+
+
+
+```{r}
+
+get_list_from_ps <- function(physeq, amaz_fac) {
+  my_keys <- levels(sample_data(physeq)[[amaz_fac]])
+  mylist <- vector(mode="list", length=length(my_keys))
+  names(mylist) <- my_keys
+  for (i in levels(sample_data(physeq)[[amaz_fac]])) { 
+    x <- prune_samples(sample_data(physeq)[[amaz_fac]] %in% i, physeq)
+    x <- prune_taxa(taxa_sums(x) > 0, x)
+    mylist[[i]] <- taxa_names(x)
+  }
+  return(mylist)
+}
+
+ps_1.3 <- prune_samples(sample_data(ps.f)$Site %in% c("N1", "N3"), ps.f)
+ps_1.3  <- prune_taxa(taxa_sums(ps_1.3) > 0, ps_1.3)
+physeq <- ps_1.3
+
+ps_5.6.7 <- prune_samples(sample_data(ps.f)$Site %in% c("N5", "N6", "N7"), ps.f)
+ps_5.6.7  <- prune_taxa(taxa_sums(ps_1.3) > 0, ps_5.6.7)
+physeq <- ps_5.6.7
+
+physeq <- ps.f
+
+
+library(ggVennDiagram)
+?ggVennDiagram
+ggVennDiagram(get_list_from_ps(ps_f_family, "Soil")) + 
+  ggplot2::scale_fill_viridis_c(option = "D", begin=0.2)
+
+ps.ff@sam_data
+
+ggVennDiagram(get_list_from_ps(new_phyloseq, "region")) + 
+  ggplot2::scale_fill_viridis_c(option = "D", begin=0.2)
+
+?ggVennDiagram
+
+get_list_from_ps(new_phyloseq, "region")
+
+sample_data(ps) <- map_m
+ps.f@sam_data
+
+```
+
+```{r}
+
+
+refs_short <- list()
+
+for (x in names(l.ps)){
+  ps <- l.ps[[x]]
+  ref <- ps@refseq[0:10]
+  names(ref) <- paste0(x, seq(1, 10)) 
+  print(ref)
+  refs_short <- append(refs_short, ref)
+}
+
+refs_short
+al_refs <- DECIPHER::AlignSeqs(refs_short, anchor=NA,verbose=FALSE, processors = 20)
+al_refs[61:70]
+subseq(refs_short, 1, -2)
+
+as.character(new_phyloseq@refseq)
+taxa_names(new_phyloseq) <- as.character(new_phyloseq@refseq)
+taxa_names(new_phyloseq)
+ps <- ps.nal
+taxa_names(ps) <- unname(as.character(ps.nal@refseq))
+as.data.frame(ps@tax_table)
+ref <- as.character(ps.nal@refseq)
+unname(ref)
+
+ps.bor.t@refseq
+
+
+al_refs[31:40]
+```
+```{r}
+
+al_refs[1:10]
+```
+
+
+```{r}
+
+names(l.ps)
+
+
+subseq(al_refs, 2, -2)
+
+ps.bor.t <- ps.bor
+ps.bor.t@refseq <- subseq(ps.bor@refseq, 3, -1) 
+  
+ps.nal.t <- ps.nal
+ps.nal.t@refseq <- subseq(ps.nal@refseq, 2, -1) 
+
+ps.krim.t <- ps.krim
+ps.krim.t@refseq <- subseq(ps.krim@refseq, 2, -2) 
+
+ps.kuz.t <- ps.kuz
+ps.kuz.t@refseq <- subseq(ps.kuz@refseq, 2, -2) 
+
+ps.ufa.t <- ps.ufa_reg
+ps.ufa.t@refseq <- subseq(ps.ufa@refseq, 1, -2) 
+
+ps.uhta.t <- ps.uhta
+ps.uhta.t@refseq <- subseq(ps.uhta@refseq, 1, -2) 
+
+
+
+ps.vorkuta.t <- ps.vorkuta
+ps.vorkuta.t@refseq <- subseq(ps.vorkuta.t@refseq, 1, -2) 
+
+ps.komi.t <- ps.komi
+ps.komi.t@refseq <- subseq(ps.komi@refseq, 1, -2) 
+
+ps.nad.t <- ps.nad
+ps.nad.t@refseq <- subseq(ps.nad@refseq, 2, -1) 
+
+ps.bor.t@refseq 
+
+, ufa = ps.ufa.t
+
+
+l.ps.t <- list(новгород = ps.bor.t, 
+               нальчик = ps.nal.t, 
+               уфа = ps.ufa.t, 
+               крым = ps.krim.t, 
+               спб = ps.kuz.t, 
+               ухта = ps.uhta.t, 
+               воркута = ps.vorkuta.t,
+               надым = ps.nad.t)
+
+new.list <- list()
+
+for (x in names(l.ps.t)) {
+  ps <- l.ps.t[[x]]
+    
+    print(x)
+    ps <- phyloseq(otu_table(ps@otu_table), 
+          sample_data(ps@sam_data),
+          tax_table(ps@tax_table),
+          refseq(ps@refseq))
+  
+  reduced_map <- data.frame(region = rep(x, length(sample_names(ps))),
+                          soil = rep("unknown", length(sample_names(ps))),
+                          row.names = sample_names(ps)
+                          )
+  ps <-  prune_taxa(taxa_sums(ps) > 550, ps)
+  print(ps)
+  taxa_names(ps) <- unname(as.character(ps@refseq))
+  sample_data(ps) <- reduced_map
+  new.list <- append(new.list, ps)
+}
+
+
+merger <- function(ps1, ps2){
+ ps.m <- merge_phyloseq(ps1, ps2)
+ return(ps.m)
+}
+
+new_phyloseq <- purrr::reduce(new.list, merger)
+
+```
+
+```{r}
+
+ps.ff <-  filter_taxa(new_phyloseq, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
+ps.ff
+
+ps.ff
+ordination.b <- ordinate(new_phyloseq, "NMDS", "bray")
+
+plot_ordination(new_phyloseq, ordination.b, type="sample", color="region", title="Bray-Curtis", 
+                       axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 20)) + geom_point(size = 3) 
+
+levels(new_phyloseq@sam_data$region)
+```
+
+
+
+
+
+```{r}
+
+ps.kuz@refseq
+
+```
+
+
+```{r}
+
+ps.kuz@refseq
+
+```
+
+
+```{r}
+
+ps.kuz@refseq
+
+```
+
+```{r}
+
+ps.bor@refseq
+
+```
+
+
+```{r}
+setwd("~/storage/nadim/nadim2/")
+
+library(tidyverse)
+library(naturalsort)
+library(phyloseq)
+
+map <- read_delim("~/storage/nadim/nadim2/nadim.map.csv", delim = ",") %>%
+  column_to_rownames("ID")
+map <- map %>%  mutate(Description = paste0(Site, "_", Horizon))
+View(map)
+
+reps <- refseq(readDNAStringSet("~/storage/nadim/nadim2/rep_seq.fasta"))
+reps.ch <- as.character(reps)
+
+path_trein_set = "~/storage/somebases/silva_nr_v138_train_set.fa"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.fa"
+mult = TRUE
+mlt = NULL
+
+taxa.dada2 <- assignTaxonomy(reps.ch, path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(reps.ch, path_trein_set_species)
+
+
+
+rownames(taxa.dada2.species) <- rownames(reps.ch)
+ref_seq.df <- data.frame(reps.ch)
+rownames(taxa.dada2.species) <- rownames(ref_seq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+as.data.frame(taxa)
+write.table(taxa, file = "~/storage/nadim/nadim2/taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+
+ncol(otu_table)
+nrow(taxa)
+
+otus[21:24]
+
+otus <- read_delim( "~/storage/nadim/nadim2/otu_table.txt" ,delim = "\t") %>% 
+  column_to_rownames("#OTU_ID")
+
+col_names_otus <- colnames(otus)
+colnames_otus_nice <- paste0(sapply(strsplit(col_names_otus, "[.]"), 
+                            `[`, 2), sapply(strsplit(col_names_otus, "[.]"), `[`, 3))
+
+colnames(otus) <- colnames_otus_nice
+colnames_otus_nice
+otu_table <- t(as.matrix(otus))
+
+taxa <- read_delim("~/storage/nadim/nadim2/taxa.txt", delim = "\t")
+taxa[1,1]
+taxa <- read_delim("~/storage/kuz/taxa.txt", delim = "\t") %>% 
+  column_to_rownames("...1") %>% 
+  as.matrix()
+
+tree <- ape::read.tree(file="~/storage/kuz/tree.nwk")
+tree
+
+library(phytools)
+# install.packages("phytools")
+tree <- DECIPHER::ReadDendrogram("~/storage/kuz/tree.nwk")
+tree
+
+ps <- phyloseq(otu_table(otu_table, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa))
+
+ps
+
+
+ps <- merge_phyloseq(ps, refseq(readDNAStringSet("~/storage/nadim/nadim2/rep_seq.fasta")))
+
+
+ps@sam_data
+map <- map %>%  mutate(Description = paste0(Region, "_", Site, "_", Horizon))
+
+map <- map %>% mutate(Description = as.factor(Description))
+
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+ps@tax_table <- replace_na(ps@tax_table, TRUE)
+ps <- subset_taxa(ps,
+                  !(Family  == "Mitochondria" |
+                      Class   == "Chloroplast" |
+                      Order   == "Chloroplast"))
+ps@tax_table <- na_if(ps@tax_table, TRUE)
+
+ps.q@sam_data
+ps.f <- delete_mit_chl(ps)
+ps.f <- ps
+
+ps.f <- prune_samples(sample_data(ps.f)$Region %in% c("Kuznechnoe"),ps.f)
+ps.f  <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+
+ps.q <- prune_samples(sample_data(ps.f)$Soil %in% c("granite_screenings"),ps.f)
+ps.q  <- prune_taxa(taxa_sums(ps.q) > 0, ps.q)
+
+ps.12 <- prune_samples(! sample_data(ps.f2)$Soil %in% c("Лесная"),ps.f2)
+ps.12  <- prune_taxa(taxa_sums(ps.12) > 0, ps.12)
+
+ps.nc <- prune_samples(! sample_data(ps_f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+ps.cc <- prune_samples(sample_data(ps_f2)$Soil %in% c("Calcareous Chernozem"), ps_f2)
+ps.cc  <- prune_taxa(taxa_sums(ps.cc) > 0, ps.cc)
+
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl_eu <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Kingdom == "Eukaryota"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, is.na(Phylum)))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+saveRDS(ps.f, file = "ps.f.rds")
+saveRDS(ps, file = "~/storage/nadim/nadim2/ps.rds")
+
+ps.f <- delete_mit_chl_eu(ps)
+
+
+metadata <- ps.f@sam_data
+metadata$Horizon <- as.factor(metadata$Horizon)
+metadata$Description <- sapply(strsplit(metadata$Description, "Kuznechnoe_"), `[`, 2)
+metadata
+metadata$Description <- factor(metadata$Description, levels =  c("Benchmark_AY", "Quarry_AY", "Quarry_AC", "Quarry_C"))
+
+sample_data(ps) <- metadata
+
+
+metadata$Description
+ps.f <- ps
+writeXStringSet(ps@refseq, file="ref_filt.fasta")
+```
+
+
+
+```{r, fig.height=7, fig.width=8}
+
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata)
+    return(amp.ps)
+}
+
+library(ampvis2)
+as.data.frame(new_phyloseq@tax_table@.Data)
+amp <- phyloseq_to_amp(new_phyloseq)
+amp
+amp_heatmap(amp,tax_show = 40, group_by = "Association", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Family") + theme_bw() + theme(text = element_text(size=12), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+
+```
