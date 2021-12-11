@@ -1,0 +1,195 @@
+---
+title: "cellulo_com_its"
+author: "GrGladkov"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/home/gladkov/storage/straw_ont/")
+```
+
+
+
+ls | grep Abakumov- | xargs cp -t  ~/storage/cryo/in
+
+```{r}
+
+setwd("/home/gladkov/storage/straw_ont/")
+path = "/home/gladkov/storage/cellulolit/its/dada2_pipeline/in"
+path_trein_set = "~/storage/somebases/sh_general_release_s_all_04.02.2020/sh_general_release_dynamic_s_all_04.02.2020.fasta"
+name_Brief = "nameBrief.txt"
+
+mult = TRUE
+mlt = NULL
+
+```
+
+
+
+```{r}
+
+mag_taxa <- read_table("gtdb_taxa.tsv")
+mag_genus <-  mag_taxa %>% 
+  separate(classification, c("d","p","c","o","f","g","s"), sep = ";") %>% 
+  mutate(string = as.factor(substring(s, 4)),
+         genus = as.factor(substring(g, 4)),
+         family = as.factor(substring(f, 4)),
+         order = as.factor(substring(o, 4)),
+         class = as.factor(substring(c, 4)),
+         phylum = as.factor(substring(p, 4))
+         ) %>% 
+  select(user_genome,
+         string,
+         genus,
+         family,
+         order,
+         class,
+         phylum
+         ) %>% 
+  filter(user_genome != "user_genome")
+
+colnames(mag_genus) <- c('Id',
+         'string',
+         'genus',
+         'family',
+         'order',
+         'class',
+         'phylum'
+         )
+
+mag_stat <- readr::read_tsv("mags_stat.tsv")
+scaff_stat <- read_table("genome_stats.tsv")
+
+scaff_stat
+mag_stat
+mag_genus
+
+taxa_df <- Reduce(function(...) full_join(...), list(mag_genus, mag_stat, scaff_stat))
+taxa_df
+m_su
+```
+
+
+
+```{r}
+
+path <- "metabolism_summary.xlsx"
+
+mad_g <- path %>%
+        excel_sheets() %>%
+        set_names() %>%
+        map_df(read_excel,
+           path = path,
+           .id = "type") %>% 
+  select(-c("fasta"))
+
+mad_l <- gather(mad_g, Id, hits, colnames(mad_g)[7:length(colnames(mad_g))], factor_key=TRUE)
+
+mad_g
+
+ggplot(mad_l, aes(x=type, y=log(hits), fill=com)) + 
+    geom_boxplot(alpha=0.2)
+
+```
+
+```{r}
+
+lig_d = read_delim("lig_ec.txt", delim = "\n")
+lig_d
+
+
+filter(mad_g, module == 'Auxiliary Activities')
+
+mad_g %>%
+  filter(grepl(paste(lig_d$lig, collapse="|"), paste(gene_description, module)))
+
+```
+
+```{r}
+
+m_cbm <- filter(mad_l, module == 'Carbohydrate-Binding Modules') %>% 
+  group_by(Id) %>% 
+  summarise(CBM = sum(hits)) %>% 
+  arrange(CBM)
+
+m_gh <- filter(mad_l, module == 'Glycoside Hydrolases') %>% 
+  group_by(Id) %>% 
+  summarise(GH = sum(hits)) %>% 
+  arrange(GH)
+
+m_dn <- mad_l %>% 
+  filter(grepl("Denitrification", paste(gene_description, module))) %>% 
+  group_by(Id) %>% 
+  summarise(DN = sum(hits)) %>% 
+  arrange(DN)
+
+m_gt <- filter(mad_l, module == 'GlycosylTransferases') %>% 
+  group_by(Id) %>% 
+  summarise(GT = sum(hits)) %>% 
+  arrange(GT)
+
+m_pd <- filter(mad_l, header == 'Peptidase') %>% 
+  group_by(Id) %>% 
+  summarise(PD = sum(hits)) %>% 
+  arrange(PD)
+
+m_lg <- mad_l %>%
+  filter(grepl(paste(lig_d$lig, collapse="|"), paste(gene_description, module))) %>% 
+  group_by(Id) %>% 
+  summarise(LG = sum(hits)) %>% 
+  arrange(LG)
+
+m_mt <- filter(mad_l, header == 'C1-methane') %>%
+  group_by(Id) %>% 
+  summarise(MT = sum(hits)) %>% 
+  arrange(MT)
+
+m_su <- filter(mad_l, header == 'Sulfur') %>%
+  group_by(Id) %>% 
+  summarise(SU = sum(hits)) %>% 
+  arrange(SU)
+
+bi.ann <- Reduce(function(...) full_join(...), list(m_gh, m_cbm, m_lg, m_dn, m_mt, m_su , m_pd, m_gt, taxa_df))
+
+bi.ann
+
+bi.ann.gen <- separate(bi.ann, com, into = c("community", "V2")) %>% 
+  select(-V2) %>% 
+  mutate(community=as.factor(community)) %>%
+  gather("enzymes_groups", hits, "GH", "CBM", "LG", "DN", "MT", "SU", "PD", "GT","gen_s" , factor_key=TRUE) %>% 
+    mutate(log_hits = log(hits))
+
+
+```
+
+
+```{r}
+
+bi.ann
+
+```
+
+
+
+
+```{r}
+data_num <- bi.ann %>%
+  select_if(., is.numeric)
+rownames(data_num) <- bi.ann$label
+plot(data_num)
+```
+
+```{r}
+library(corrplot)
+cor_num <- cor(data_num, method = "spearman")
+corrplot(cor_num, method = 'number')
+
+```
+
+```{r}
+
+```
+
+
+
