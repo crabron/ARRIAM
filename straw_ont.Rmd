@@ -98,13 +98,22 @@ ggplot(mad_l, aes(x=type, y=log(hits), fill=com)) +
 lig_d = read_delim("lig_ec.txt", delim = "\n")
 lig_d
 
-
+mad_g
 filter(mad_g, module == 'Auxiliary Activities')
 
 mad_g %>%
   filter(grepl(paste(lig_d$lig, collapse="|"), paste(gene_description, module)))
 
 ```
+
+```{r}
+names <-  read_delim("names", delim = "\t")
+names %>% mutate(dupl = duplicated(names))
+names
+taxa_df <- full_join(taxa_df, names)
+```
+
+
 
 ```{r}
 
@@ -124,10 +133,21 @@ m_dn <- mad_l %>%
   summarise(DN = sum(hits)) %>% 
   arrange(DN)
 
+m_ar <- filter(mad_l, header == 'Antibiotic Resistance') %>% 
+  group_by(Id) %>% 
+  summarise(AR = sum(hits)) %>% 
+  arrange(AR)
+
+m_cr <- filter(mad_l, header == 'CRISPR') %>% 
+  group_by(Id) %>% 
+  summarise(CR = sum(hits)) %>% 
+  arrange(CR)
+
 m_gt <- filter(mad_l, module == 'GlycosylTransferases') %>% 
   group_by(Id) %>% 
   summarise(GT = sum(hits)) %>% 
   arrange(GT)
+
 
 m_pd <- filter(mad_l, header == 'Peptidase') %>% 
   group_by(Id) %>% 
@@ -145,31 +165,84 @@ m_mt <- filter(mad_l, header == 'C1-methane') %>%
   summarise(MT = sum(hits)) %>% 
   arrange(MT)
 
-m_su <- filter(mad_l, header == 'Sulfur') %>%
+m_su <- filter(mad_l, gene_description %in% c("sulfite reductase, dissimilatory-type [EC:1.8.99.5] [RN:R00861]",
+                            "thiosulfate reductase / polysulfide reductase chain A [EC:1.8.5.5]",
+                             "tetrathionate => thiosulfate"
+                            )|(module %in% 'Thiosulfate oxidation by SOX complex, thiosulfate => sulfate')) %>%
   group_by(Id) %>% 
   summarise(SU = sum(hits)) %>% 
   arrange(SU)
 
-bi.ann <- Reduce(function(...) full_join(...), list(m_gh, m_cbm, m_lg, m_dn, m_mt, m_su , m_pd, m_gt, taxa_df))
+bi.ann <- Reduce(function(...) full_join(...), list(m_gh, m_cbm, m_lg, m_dn, m_mt, m_su , m_ar, m_cr,  m_pd, m_gt, taxa_df))
 
-bi.ann
 
-bi.ann.gen <- separate(bi.ann, com, into = c("community", "V2")) %>% 
-  select(-V2) %>% 
-  mutate(community=as.factor(community)) %>%
-  gather("enzymes_groups", hits, "GH", "CBM", "LG", "DN", "MT", "SU", "PD", "GT","gen_s" , factor_key=TRUE) %>% 
-    mutate(log_hits = log(hits))
+bi.ann.gen <- bi.ann %>% 
+  mutate( Substrat = stringr::str_sub(Id, 1, 1)) %>% 
+  mutate( Time = stringr::str_sub(Id, 2, 2)) %>% 
+  mutate( Description = stringr::str_sub(Id, 1, 2)) %>% 
+  mutate(community=as.factor(Description)) %>%
+  gather("enzymes_groups", hits, "GH", "CBM", "LG", "DN", "MT", "SU", "AR", "CR", "PD", "GT" , factor_key=TRUE) %>% 
+  mutate(hits=as.numeric(hits)) %>% 
+  mutate(log_hits = log(hits)) %>% 
+  mutate(Genome_size = round(Genome_size/1000000, 1))
 
+bi.ann <- bi.ann %>% 
+  mutate( Substrat = stringr::str_sub(Id, 1, 1)) %>% 
+  mutate( Time = stringr::str_sub(Id, 2, 2)) %>% 
+  mutate( Description = stringr::str_sub(Id, 1, 2))
 
 ```
 
 
 ```{r}
 
-bi.ann
+
+filter(mad_l, gene_description %in% c("sulfite reductase, dissimilatory-type [EC:1.8.99.5] [RN:R00861]",
+                            "thiosulfate reductase / polysulfide reductase chain A [EC:1.8.5.5]",
+                             "tetrathionate => thiosulfate"
+                            )|(module %in% 'Thiosulfate oxidation by SOX complex, thiosulfate => sulfate'))
+
+filter(mad_l, header %in% 'Sulfur') %>% distinct(module)
+filter(mad_l, header %in% 'Sulfur') %>% distinct(gene_description)
+filter(mad_l, header %in% 'Sulfur') 
+filter(mad_l, gene_description %in% 'thiosulfate => sulfite')
+filter(mad_l, module %in% 'Dissimilatory sulfate reduction, sulfate => H2S') %>% distinct(gene_description)
+write.table(taxa_df, file="taxa_df")
+write.table(taxa_df, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+
+mad_l %>% filter(grepl(paste('EC:1.8.5.5'), paste(gene_description, module, header)))%>% distinct(gene_description)
+
+mad_l
+
+
 
 ```
 
+```{r, fig.height=12, fig.width=6}
+
+ggplot(bi.ann.gen, aes(x=Description, y=hits)) + 
+  geom_boxplot(position=position_dodge(1))+
+  theme_bw() +
+  facet_wrap(enzymes_groups ~ ., scales = "free_y", ncol = 2) 
+
+
+ggplot(bi.ann, aes(x=Description, y=CR)) +
+  geom_boxplot(position=position_dodge(1))
+
+ggplot(bi.ann, aes(x=Time, y=Genome_size)) +
+  geom_boxplot(position=position_dodge(1))
+
+```
+
+```{r, fig.height=12, fig.width=6}
+
+ggplot(bi.ann.gen, aes(x=Genome_size, y=hits)) + 
+  geom_point()+
+  theme_bw() +
+  facet_wrap(enzymes_groups ~ ., scales = "free_y", ncol = 2) 
+
+```
 
 
 
@@ -178,18 +251,147 @@ data_num <- bi.ann %>%
   select_if(., is.numeric)
 rownames(data_num) <- bi.ann$label
 plot(data_num)
+
+plot(data_num$Genome_size, data_num$GH)
+
+filter(bi.ann, phylum=="Bacteroidota")
+
+bi.ann %>%  arrange(Genome_size)
+
+bi.ann %>% dplyr::count(phylum)
+
+count(bi.ann$phylum)
+
+bi.ann
+
+```
+
+
+```{r}
+
+filter(bi.ann, Id %in% c("C2_gen.53", "C1_gen.90", "C1_gen.141"))
+C2_gen.3
+
+
+
+filter(bi.ann, Id %in% c("C2_gen.13"))
+bi.ann
+
+```
+
+
+```{r}
+plot(data_num$Genome_size, data_num$AR)
+
+stats::cor.test(data_num$Genome_size,data_num$LG,method = "pearson")
+
+```
+
+```{r}
+stats::cor.test(data_num$Genome_size,data_num$GH, method = "pearson")
+```
+
+
+```{r}
+bi.ann %>%  arrange(Genome_size)
 ```
 
 ```{r}
 library(corrplot)
-cor_num <- cor(data_num, method = "spearman")
+data_cor <- bi.ann %>% 
+  select("GH", "CBM", "LG", "DN", "MT", "SU", "AR", "CR", "PD", "GT", "Genome_size")
+cor_num <- cor(data_cor, method = "spearman")
 corrplot(cor_num, method = 'number')
 
 ```
 
-```{r}
+```{r, fig.height=11, fig.width=15}
+
+com_c1 <- filter(bi.ann.gen, Description == 'C1')
+com_c2 <- filter(bi.ann.gen, Description == 'C2')
+com_c3 <- filter(bi.ann.gen, Description == 'C3')
+com_l1 <- filter(bi.ann.gen, Description == 'L1')
+com_l2 <- filter(bi.ann.gen, Description == 'L2')
+com_l3 <- filter(bi.ann.gen, Description == 'L3')
+
+p1 <-ggplot(com_c1, aes(y = gen_s, x = enzymes_groups, fill = log_hits)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = hits), color = "black", size = 3) +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000") +
+  coord_fixed() +
+  theme(axis.title.y=element_blank(),
+        axis.title.x=element_blank())
+
+p2 <- ggplot(com_c2, aes(y = gen_s, x = enzymes_groups, fill = log_hits)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = hits), color = "black", size = 3) +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000") +
+  coord_fixed() +
+  theme(axis.title.y=element_blank(),
+        axis.title.x=element_blank())
+
+p3 <- ggplot(com_c3, aes(y = gen_s, x = enzymes_groups, fill = log_hits)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = hits), color = "black", size = 3) +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000") +
+  coord_fixed() +
+  theme(axis.title.y=element_blank(),
+        axis.title.x=element_blank())
+
+p4 <- ggplot(com_l1, aes(y = gen_s, x = enzymes_groups, fill = log_hits)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = hits), color = "black", size = 3) +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000") +
+  coord_fixed() +
+  theme(axis.title.y=element_blank(),
+        axis.title.x=element_blank())
+
+p5 <- ggplot(com_l2, aes(y = gen_s, x = enzymes_groups, fill = log_hits)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = hits), color = "black", size = 3) +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000") +
+  coord_fixed() +
+  theme(axis.title.y=element_blank(),
+        axis.title.x=element_blank())
+
+p6 <- ggplot(com_l3, aes(y = gen_s, x = enzymes_groups, fill = log_hits)) +
+  geom_tile(color = "black") +
+  geom_text(aes(label = hits), color = "black", size = 3) +
+  scale_fill_gradient2(low = "#075AFF",
+                       mid = "#FFFFCC",
+                       high = "#FF0000") +
+  coord_fixed() +
+  theme(axis.title.y=element_blank(),
+        axis.title.x=element_blank())
+
+ggarrange(p1, p2, p3, p4, p5, p6, 
+  ncol = 3 ,
+  nrow = 2,
+  vjust = 1.2,
+  labels = c('солома - 1', 'солома -2', 'солома - 3', 'листья - 1', 'листья - 2', 'листья - 3'),
+  font.label = list(size = 12, face = "bold", color ="black"),
+  common.legend = TRUE,
+  legend = "none")
+
+
+  
 
 ```
 
+```{r}
+BiocManager::install("clusterProfiler")
+library("clusterProfiler")
+
+```
 
 
