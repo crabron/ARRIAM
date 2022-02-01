@@ -172,7 +172,6 @@ as.data.frame(st.brief.t.df)
 
 ```{r}
 
-
 library(phyloseq)
 #some SEPP bash tree magic
 
@@ -456,7 +455,9 @@ plot_alpha(ps.f2, c("Observed","Shannon","InvSimpson"), "Soil")
 
 
 ```{r}
+
 ps.f2@sam_data$Genotype
+
 ```
 
 ```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=12}
@@ -524,9 +525,8 @@ p1
 
 
 ps.f2
+
 ``` 
-
-
 
 ```{r,fig.height=8, fig.width=12, results=FALSE}
 
@@ -593,13 +593,11 @@ ordination.w <- ordinate(ps.var, "PCoA", "wunifrac")
                                face = "bold", 
                                color ="black")
              )
-  
-
-
 
 ```
 
 ```{r, message=FALSE, echo=FALSE}
+
 des_w_simper <- function(ps, factor){
   require(DESeq2)
   require(vegan)
@@ -625,7 +623,6 @@ des_w_simper <- function(ps, factor){
 
 
 ```{r, eval=FALSE}
-
 
 des.soil <- des_w_simper(ps.f2, "Soil")
 des.gen <- des_w_simper(ps.f2, "Genotype")
@@ -677,7 +674,6 @@ get_list_from_ps <- function(physeq, amaz_fac) {
 
 library(ggVennDiagram)
 
-
 ?ggVennDiagram
 ggVennDiagram(get_list_from_ps(ps_f_family, "Soil")) + 
   ggplot2::scale_fill_viridis_c(option = "D", begin=0.2)
@@ -703,6 +699,7 @@ dist <- phyloseq::distance(physeq, "bray")
 metadata <- as(sample_data(physeq@sam_data), "data.frame")
 ad <- adonis2(dist ~ Soil, data = metadata, permutations = 9999)
 ad
+
 ```
 ```{r}
 
@@ -712,4 +709,5 @@ dist <- phyloseq::distance(physeq, "bray")
 metadata <- as(sample_data(physeq@sam_data), "data.frame")
 ad <- adonis2(dist ~ Genotype, data = metadata, permutations = 9999)
 ad
+
 ```

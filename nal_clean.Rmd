@@ -1,0 +1,1255 @@
+---
+title: "Microbiome development of sandy-gravel mining heaps on two different benchmark soil types of Central Caucasus foothills."
+author: "Grigory Gladkov"
+date: "12/31/2021"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 3
+    number_sections: true
+    theme: lumen
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message=FALSE, warning = FALSE)
+knitr::opts_knit$set(root.dir = "~/storage/nal/")
+
+```
+
+```{r, message=FALSE, warning=FALSE}
+
+require(Biostrings)
+require(phyloseq)
+require(tidyverse)
+require(ggpubr)
+
+```
+
+```{r}
+
+setwd("~/storage/nal/")
+
+```
+
+Preprocessing:
+
+Basic dada2 pipeline:\
+truncLen=c(185,185)\
+trimLeft=20\
+maxEE=c(6,8)\
+pool=FALSE\
+silva_nr_v138\
+delete bad taxa by decontam + \
+annosighted + \
+chloroplasts/mitho +\
+low reads/richness +\
+reads lenght check\
+
+tree from SEPP-QIIME2-plagin
+
+sed -i '1s/^/#OTU_ID/' otu_table.txt 
+biom convert -i otu_table.txt -o otu_table.biom --to-hdf5
+qiime tools import \
+--input-path rep_seq.fasta \
+--output-path rep_seq.qza \
+--type 'FeatureData[Sequence]'
+qiime fragment-insertion sepp \
+--i-representative-sequences rep_seq.qza \
+--i-reference-database ~/storage/somebases/sepp-refs-silva-128.qza \
+--o-tree insertion-tree.qza \
+--o-placements insertion-placements.qza \
+--p-threads 20 \
+qiime tools import \
+--input-path otu_table.biom \
+--type 'FeatureTable[Frequency]' \
+--input-format BIOMV210Format \
+--output-path feature-table.qza
+qiime fragment-insertion filter-features \
+--i-table feature-table.qza \
+--i-tree insertion-tree.qza \
+--o-filtered-table filtered_table.qza \
+--o-removed-table removed_table.qza \ 
+unzip -p filtered_table.qza > filtered_table.biom \
+biom convert -i  filtered_table.biom -o filtered_table.txt \
+--to-tsv \
+sed -i '1d' filtered_table.txt \
+unzip -p insertion-tree.qza */data/* > tree.nwk
+
+I also did the PLSDA, but the result was a nightmare to interpret. \
+Decontam package also give me the irrevalent result. \
+And there were considerably more beta-plots and heatmaps in first version of this data analysis. \
+
+The quantitative data from DeSeq2 do not exactly match the data in the article supplement because of the different filtering across samples. This does not lead to a principal change in the ASVs composition and it did not result in any changes in the article itself, but plots look match better. The ILR analysis (philR) gives more unstable results, as a consequence, this analysis is discussed in the context of the taxonomic level of changing taxa in the article. With this approach, the results are constant with different strategies of filtering minors/samples with low representation. \
+
+
+## Import RDS data. Read mapping file.
+
+Removing nonidentified on phylum level phylotypes, mithohondria/chloroplasts.
+
+```{r, message=FALSE,echo=TRUE, fig.height=4, fig.width=12}
+
+track <- read_tsv("track.tsv")
+ps <- read_rds("ps.rds")
+ps <- merge_phyloseq(ps, refseq(readDNAStringSet("rep_seq.fasta")))
+
+d <- density(width(ps@refseq))
+plot(d)
+```
+
+
+```{r}
+
+pop_taxa <- function(physeq, badTaxa){
+  allTaxa = taxa_names(physeq)
+  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
+  return(prune_taxa(myTaxa, physeq))
+}
+
+delete_mit_chl_eu <- function(ps){
+  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, Kingdom == "Eukaryota"))
+  ps <- pop_taxa(ps, badTaxa)
+  badTaxa <- taxa_names(subset_taxa(ps, is.na(Phylum)))
+  ps <- pop_taxa(ps, badTaxa)
+  return(ps)
+}
+
+ps.f <- delete_mit_chl_eu(ps)
+
+d <- density(width(ps.f@refseq))
+plot(d)
+
+```
+
+adding full metadata
+
+```{r}
+
+map <- read_tsv("mapping_nalchic_new.tsv", 
+                col_types = cols(
+                  pH = col_character()
+                )
+              )
+
+map <- column_to_rownames(map, "Sample")
+
+site_column <- ps.f@sam_data %>% 
+  as.data.frame() %>% 
+  pull('Site')
+
+map <- map %>% 
+  mutate(Type = str_replace(Type, " /", "/")) %>% 
+  mutate(`Corg,_%` = str_replace(`Corg,_%`, ",", ".")) %>%
+  mutate(`NO3_mg/kg` = str_replace(`NO3_mg/kg` , "," , ".")) %>% 
+  mutate(pH = str_replace(pH, ",", ".")) %>% 
+  mutate(final_concentration = str_replace(final_concentration, ",", ".")) %>% 
+  mutate(pH = as.numeric(pH)) %>% 
+  mutate(final_concentration = as.numeric(final_concentration)) %>% 
+  mutate(`NO3_mg/kg` = as.numeric(`NO3_mg/kg`)) %>% 
+  mutate(`Corg,_%` = as.numeric(`Corg,_%`)) %>%
+  mutate(`Day_sampling` = as.factor(`Day_sampling`)) %>%
+  mutate(
+  Quarry_or_Benchmark = case_when(
+    grepl('Quarry', What) ~ 'Quarry',
+    grepl('Benchmark', What) ~ 'Benchmark'
+  ) 
+  ) %>%
+      mutate(
+    Region = case_when(
+      grepl('meadow_humus', Soil) ~ 'Urvan',
+      grepl('Carbonate_chernozem', Soil) ~ 'Progress',
+      grepl('Forest_gray', Soil) ~ 'Gerpegesh',
+    )
+  ) %>% 
+  relocate(Quarry_or_Benchmark, .before = Insolation) %>%
+  mutate(Repeat = site_column) %>%
+  relocate(Repeat, .after = Site)
+
+map <- map %>%  mutate_if(sapply(map, is.character), as.factor)
+
+map_m <- map
+colnames(map_m)
+
+```
+
+```{r}
+
+colnames(map_m)[16] <- "C"
+colnames(map_m)[17] <- "C_org"
+colnames(map_m)[18] <- "P"
+colnames(map_m)[19] <- "K"
+colnames(map_m)[20] <- "NH4"
+colnames(map_m)[21] <- "NO3"
+
+colnames(map)
+
+```
+
+the temp feature added - the feature of normalized temperature by days
+
+```{r}
+
+ps.f <- prune_samples(!sample_data(ps)$Soil %in% c("Forest_gray"), ps.f)
+ps.f  <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+sample_data(ps.f) <- map_m
+
+ps.nc <- prune_samples(sample_data(ps.f)$Day_sampling %in% c("1"), ps.f)
+map3 <- data.frame(ps.nc@sam_data) %>%  mutate(temp = scale(Temperature))
+ps.nc <- merge_phyloseq(ps.nc, sample_data(map3))
+
+ps.nc1 <- prune_samples(sample_data(ps.f)$Day_sampling %in% c("2", "3"), ps.f)
+map3 <- data.frame(ps.nc1@sam_data) %>%  mutate(temp = scale(Temperature))
+ps.nc1 <- merge_phyloseq(ps.nc1, sample_data(map3))
+
+ps.f <- merge_phyloseq(ps.nc, ps.nc1)
+
+```
+
+
+Richness/depth correlation./
+Removing oultlier samples.
+
+```{r, message=FALSE,echo=TRUE, fig.height=4, fig.width=12}
+
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Repeat"] <-unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "N_", 2), function(x) x[[2]]))
+  reads.summary["Site"] <- physeq@sam_data$Site
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + 
+    geom_point(aes(y=otus, x=log2(reads), color=Site),size=3) + 
+    geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Site, "_", Repeat))) + 
+    theme_bw() +
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Site, color=Site),method=lm, se=FALSE, ymin = 1) + 
+    scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+  # geom_mark_ellipse(aes(y = otus, x=reads, group = Repeats, label = Repeats, color = Repeats), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+
+  return(p1)
+}
+
+p.rich1 <- plot_rich_reads_samlenames_lm(ps.f)
+
+ps.f2 <- subset_samples(ps.f, sample_names(ps.f) != 'N_95')
+ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_96')
+ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_89')
+ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_31')
+# ps.f2 <- subset_samples(ps.f2, sample_names(ps.f2) != 'N_70')
+ps.f2 <- subset_samples(ps.f2, Site != 'N8-2')
+ps.f2 <- subset_samples(ps.f2, Site != 'N8-3')
+
+
+p.rich <- plot_rich_reads_samlenames_lm(ps.f)
+p.rich2 <- plot_rich_reads_samlenames_lm(ps.f2)
+
+ggarrange(p.rich, p.rich2)
+
+ps.f2  <- prune_taxa(taxa_sums(ps.f2) > 0, ps.f2)
+ps.f <- ps.f2
+
+```
+
+## vst dataset
+Variance stabilization by DESeq2 package.
+
+```{r, message=FALSE, warning=FALSE}
+
+ps_vst <- function(ps, factor){
+  
+  require(DESeq2)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))              
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+ps.varstab <- ps_vst(ps.f, "Repeat")
+
+```
+
+### Beta - NMDS
+
+```{r, message=FALSE,echo=TRUE,fig.height=7, fig.width=9, results=FALSE, fig.keep='all'}
+
+beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", Color="What", Group="Repeat"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  require(DESeq2)
+  library(ggforce)
+  
+  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
+  #variant with only bray
+  
+  if (exists("ps.varstab") == FALSE){
+    diagdds = phyloseq_to_deseq2(ps, ~ Site)                  
+    diagdds = estimateSizeFactors(diagdds, type="poscounts")
+    diagdds = estimateDispersions(diagdds, fitType = "local") 
+    if (normtype =="vst")
+      pst <- varianceStabilizingTransformation(diagdds)
+    if (normtype =="log") 
+      pst <- rlogTransformation(diagdds)
+    
+    pst.dimmed <- t(as.matrix(assay(pst))) 
+    pst.dimmed[pst.dimmed < 0.0] <- 0.0
+    ps.varstab <- ps
+    otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  }
+
+  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+  p  <-  plot_ordination(ps.varstab,
+                         ordination.b,
+                         type="sample",
+                         color = Color,
+                         # title="NMDS - Bray-Curtis",
+                         title=NULL,
+                         axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes_string(group = Group, label = Group),
+                      label.fontsize = 10,
+                      label.buffer = unit(2, "mm"),
+                      label.minwidth = unit(5, "mm"),
+                      con.cap = unit(0.1, "mm"),
+                      con.colour='gray') +
+    theme(legend.position = "none") 
+
+  return(p)
+}
+
+p.beta <- beta_custom_norm_NMDS_elli(ps.f, Group="Site", Color="Site")
+p.beta
+
+```
+
+### Heatmaps ampvis2
+Heatmaps with relative abundance by ampvis2 package
+
+```{r, message=FALSE,echo=TRUE}
+
+phyloseq_to_amp <- function(ps){
+    require(ampvis2)
+    require(tibble)
+    require(phyloseq)
+    colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
+    OTU1 = as(otu_table(ps), "matrix")
+    OTU1 <- t(OTU1)
+    OTUdf = as.data.frame(OTU1)
+    taxa.ps <- as(tax_table(ps), "matrix")
+    taxa.df = as.data.frame(taxa.ps)
+    my_otu_table <- merge(OTUdf, taxa.df, by=0)
+    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
+
+    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
+    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
+    my_tree <- phy_tree(ps)
+    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
+    return(amp.ps)
+}
+
+
+amp <- phyloseq_to_amp(ps.f)
+amp
+
+```
+
+```{r, fig.height=5, fig.width=6}
+
+p.heat.phyla <- amp_heatmap(amp,
+            tax_show = 15,
+            group_by = "Site",
+            tax_aggregate = "Phylum",
+            tax_class = "Proteobacteria") +
+  theme_bw() +
+  theme(text = element_text(size=15),
+        legend.position = "none", 
+        axis.text.x=element_text(angle=45,hjust=1))
+
+
+p.heat.phyla
+
+```
+
+### Split ps
+Spltting phyloseq object by factors
+
+```{r}
+
+ps.nc <- prune_samples(sample_data(ps.f)$Region %in% c("Urvan"), ps.f)
+ps.nc  <- prune_taxa(taxa_sums(ps.nc) > 0, ps.nc)
+
+ps.cc <- prune_samples(sample_data(ps.f)$Region %in% c("Progress"), ps.f)
+ps.cc  <- prune_taxa(taxa_sums(ps.cc) > 0, ps.cc)
+
+ps.cc2 <- prune_samples(sample_data(ps.f)$Site %in% c("N1", "N3", "N5", "N6", "N7"), ps.f)
+ps.cc2  <- prune_taxa(taxa_sums(ps.cc2) > 0, ps.cc2)
+
+ps.n13 <- prune_samples(sample_data(ps.f)$Site %in% c("N1", "N3"), ps.f)
+ps.n13  <- prune_taxa(taxa_sums(ps.n13) > 0, ps.n13)
+
+ps.cc2 <- prune_samples(sample_data(ps.f)$Site %in% c("N2", "N4", ""), ps.f)
+ps.cc2  <- prune_taxa(taxa_sums(ps.cc2) > 0, ps.cc2)
+
+```
+
+## Beta stat
+PERMANOVA - Urvan
+
+```{r}
+
+library(vegan)
+
+physeq <- ps.nc
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis2(dist ~ Quarry_or_Benchmark, data = metadata)
+
+ad
+
+```
+
+PERMANOVA - Progress
+
+```{r}
+
+library(vegan)
+physeq <- ps.cc
+dist <- phyloseq::distance(physeq, "bray")
+metadata <- as(sample_data(physeq@sam_data), "data.frame")
+ad <- adonis2(dist ~ Quarry_or_Benchmark, data = metadata)
+
+ad
+
+```
+
+More Progress - UniFrac
+
+```{r}
+
+dist <- phyloseq::distance(ps.cc2, "unifrac")
+metadata <- as(sample_data(ps.cc2@sam_data), "data.frame")
+adonis( dist ~ Soil, data = metadata)
+
+```
+
+Distances caclulation from article https://doi.org/10.1080/00029890.2003.11919989 \
+Bray-Curtis distance \
+Urvan
+
+```{r}
+
+dist <- phyloseq::distance(ps.nc, "bray")
+names.nc.b <- subset(ps.nc@sam_data, ps.nc@sam_data$Quarry_or_Benchmark %in% "Benchmark") %>%
+  rownames()
+names.nc.q <- subset(ps.nc@sam_data, ps.nc@sam_data$Quarry_or_Benchmark %in% "Quarry") %>%
+  rownames()
+
+usedist::dist_between_centroids(dist, names.nc.b, names.nc.q, squared = TRUE)
+
+```
+
+Distances caclulation from article https://doi.org/10.1080/00029890.2003.11919989 \
+Bray-Curtis distance \
+Progress 
+
+```{r}
+
+dist <- phyloseq::distance(ps.cc2, "bray")
+names.cc.m <- subset(ps.cc2@sam_data, ps.cc2@sam_data$Soil %in% "meadow_humus-cryptogley") %>%
+  rownames()
+names.cc.c <- subset(ps.cc2@sam_data, ps.cc2@sam_data$Soil %in% "Carbonate_chernozem") %>%
+  rownames()
+
+usedist::dist_between_centroids(dist, names.cc.m, names.cc.c, squared = TRUE)
+
+```
+
+Progress - Permanova \
+UniFrac
+
+```{r}
+
+dist <- phyloseq::distance(ps.cc, "unifrac")
+metadata <- as(sample_data(ps.cc@sam_data), "data.frame")
+adonis( dist ~ Quarry_or_Benchmark, data = metadata)
+
+
+```
+
+
+## Heterogenity 
+Boxplot
+
+```{r,message=FALSE,echo=TRUE, fig.height=4, fig.width=5}
+
+dist <- phyloseq::distance(ps.f, method = "bray")
+groups <- ps.f@sam_data$Region
+mod <- vegan::betadisper(dist, groups)
+mod.box <- boxplot(mod)
+
+```
+
+Tukey post-hoc
+
+```{r}
+
+TukeyHSD(mod)
+
+```
+
+
+### Alpha plot
+
+```{r, message=FALSE,echo=TRUE,fig.height=8, fig.width=12, warning=FALSE}
+
+library(ggpubr)
+
+alpha.custom <- function(ps.f, arrga = "PD"){
+  
+  require(picante)
+  
+  pd <- pd(ps.f@otu_table@.Data, ps.f@phy_tree)
+  
+  pd1 <- estimate_richness(ps.f, measures=c("Observed", "InvSimpson", "Shannon"))
+  pd <- cbind(pd, ps.f@sam_data, pd1 )
+  
+  bmi <- levels(as.factor(pd$Quarry_or_Benchmark))
+  bmi.pairs <- combn(seq_along(bmi), 2, simplify = FALSE, FUN = function(i)bmi[i])
+  p1 <- ggviolin(pd, x = "Quarry_or_Benchmark", y = arrga,
+                 add = "boxplot", fill = "Quarry_or_Benchmark") + stat_compare_means(comparisons = bmi.pairs, method = "wilcox.test", size=3) +
+    scale_x_discrete(limits = c("Quarry", "Benchmark")) +
+    theme(axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          text = element_text(size=9))
+  return(p1)
+  return(p1)
+}
+
+alpha.custom2 <- function(ps.f, arrga = "PD"){
+  
+  require(picante)
+  
+  pd <- pd(ps.f@otu_table@.Data, ps.f@phy_tree)
+  
+  pd1 <- estimate_richness(ps.f, measures=c("Observed", "InvSimpson", "Shannon"))
+  pd <- cbind(pd, ps.f@sam_data, pd1 )
+  
+  bmi <- levels(as.factor(pd$Quarry_or_Benchmark))
+  bmi.pairs <- combn(seq_along(bmi), 2, simplify = FALSE, FUN = function(i)bmi[i])
+  p1 <- ggviolin(pd, x = "Quarry_or_Benchmark", y = arrga,
+                 add = "boxplot", fill = "Quarry_or_Benchmark") +
+    stat_compare_means(comparisons = bmi.pairs, method = "wilcox.test", size=3) +
+    scale_x_discrete(limits = c("Quarry", "Benchmark")) +
+    theme(axis.title.x = element_blank(),
+          legend.title = element_blank(),
+          legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1),
+          text = element_text(size=9))
+  return(p1)
+}
+
+p.alpha.Cdt.oo <- alpha.custom(ps.cc, arrga = "Observed")
+p.alpha.Cdt.sh <- alpha.custom(ps.cc, arrga = "PD")
+p.alpha.Cdt.is <- alpha.custom(ps.cc, arrga = "Shannon")
+p.alpha.Cdt.pd <- alpha.custom(ps.cc, arrga = "InvSimpson")
+
+p.alpha.Cdt.oo2 <- alpha.custom2(ps.nc, arrga = "Observed")
+p.alpha.Cdt.sh2 <- alpha.custom2(ps.nc, arrga = "PD")
+p.alpha.Cdt.is2 <- alpha.custom2(ps.nc, arrga = "Shannon")
+p.alpha.Cdt.pd2 <- alpha.custom2(ps.nc, arrga = "InvSimpson")
+
+p1 <- ggarrange(p.alpha.Cdt.oo, p.alpha.Cdt.sh,p.alpha.Cdt.is, p.alpha.Cdt.pd , 
+                p.alpha.Cdt.oo2, p.alpha.Cdt.sh2, p.alpha.Cdt.is2, p.alpha.Cdt.pd2,
+                ncol = 4 ,label.x = 0.3, nrow = 2, font.label = c(size = 10), labels = c("Progress", "", "", "", "Urvan")) 
+p1
+
+``` 
+
+### Correlation between NO3 and the some major ASVs
+
+```{r}
+
+ps.varstab.merged <- phyloseq::merge_samples(ps.varstab, "Repeat")
+ps.no3 <- subset_taxa(ps.varstab.merged, taxa_names(ps.varstab) %in% c("Seq70", "Seq71", "Seq161", "Seq170", "Seq171"))
+otus.no3 <- as.data.frame(ps.no3@otu_table)
+otus.no3$NO3 <- ps.no3@sam_data$NO3
+cor.test(otus.no3$Seq170, otus.no3$NO3, method="spearman")
+
+```
+
+### DESeq2
+
+```{r, message=FALSE, echo=TRUE}
+
+des_w_simper <- function(ps, factor){
+  require(DESeq2)
+  require(vegan)
+  require(tibble)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))                  
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  diagdds = DESeq(diagdds)
+  samp <-sample_data(ps)
+  aggdata <- t(aggregate.data.frame(as.data.frame(as.data.frame(t(diagdds@assays@data$mu))), by=list(samp[[factor]]), median))
+  colnames(aggdata) <- aggdata[1,]
+  aggdata <- aggdata[-1,]
+  res = results(diagdds)
+  res.df <- as.data.frame(res)
+  nice <- cbind(res.df, as.data.frame(ps@tax_table@.Data[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])
+} 
+
+```
+
+
+```{r, fig.height=4, fig.width=10}
+
+des.nc <- des_w_simper(ps.nc, "Quarry_or_Benchmark")
+des.cc <- des_w_simper(ps.cc, "Quarry_or_Benchmark")
+des.so <- des_w_simper(ps.f, "Region")
+
+
+des.nc.filt <- des.nc %>% 
+  filter(baseMean > 10) %>% 
+  filter(padj < 0.05) %>% 
+  arrange(log2FoldChange)
+des.cc.filt <- des.cc %>% 
+  filter(baseMean > 10) %>% 
+  filter(padj < 0.05) %>% 
+  arrange(log2FoldChange)
+des.so.filt <- des.so %>% 
+  filter(baseMean > 10) %>% 
+  filter(padj < 0.05) %>% 
+  arrange(log2FoldChange)
+
+f1 <- ggplot(des.nc.filt, aes(x=log2FoldChange, y=baseMean)) +
+  geom_vline(xintercept = 0, size = 0.75, color = "red", alpha=0.3) +
+  labs(title="Urvan, Benchmark/Quarry") +
+  geom_point() +
+  theme_bw() +
+  theme(text = element_text(size=8))
+  
+
+f2 <- ggplot(des.cc.filt, aes(x=log2FoldChange, y=baseMean)) +
+  geom_vline(xintercept = 0, size = 0.75, color = "red", alpha=0.3) +
+  labs(title="Progress, Benchmark/Quarry") +
+  geom_point() +
+  theme_bw() +
+  theme(text = element_text(size=8))
+
+f3 <- ggplot(des.so.filt, aes(x=log2FoldChange, y=baseMean)) +
+  geom_vline(xintercept = 0, size = 0.75, color = "red", alpha=0.3) +
+  labs(title="Urvan/Progress") +
+  geom_point() +
+  theme_bw() +
+  theme(text = element_text(size=8))
+
+
+p.des <- ggarrange(f1,f2,f3,nrow = 1)
+ggarrange(f1,f2,f3,nrow = 1)
+
+```
+
+## CCA
+### For sites
+
+```{r, message=FALSE,echo=TRUE, fig.height=7, fig.width=7}
+
+library(phyloseq)             
+library(vegan)
+library(ggrepel)
+
+ps.merged <- phyloseq::merge_samples(ps.f, "Repeat")
+physeq <- ps.merged
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+otus.ps.vegan <- veganifyOTU(physeq)
+metadata <- as(sample_data(physeq), "data.frame") 
+cca <- vegan::cca(otus.ps.vegan ~  pH + C_org + C +  K + NH4 + NO3 + temp + P, data=metadata)
+
+kate.ggcca.sites <- function(vare.cca){
+
+require(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+wa <- as.data.frame(vare.cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa))))
+fdat_amazing <- rbind(biplot, wa) 
+fdat_amazing <- fdat_amazing %>%
+  mutate(label_size = ifelse(Score == "biplot", 4.5, 3))
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  # geom_abline(intercept=seq(-100, 100, 25), slope=1, colour="grey", alpha=0.5) +
+  # geom_abline(intercept=seq(-100, 100, 25), slope=-1, colour="grey", alpha=0.5) +
+  geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2),
+               size = 0.6, alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=fdat_amazing$label_size) + 
+  xlab(paste0(round(cca$CCA$eig[1], 3)*100, "% CCA1")) +
+  ylab(paste0(round(cca$CCA$eig[2], 3)*100, "% CCA2")) +
+  grids(linetype = "dashed") +
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  return(p)
+}
+
+cca.sites <- kate.ggcca.sites(cca)
+cca.sites
+
+```
+
+#### Stats
+
+```{r}
+
+anova(cca, parallel = 10)
+anova(cca, by="terms", parallel = 10)
+anova(cca, by="mar", parallel = 10)
+vif.cca(cca)
+
+```
+
+### Try another CCA models
+Reduce model
+
+```{r, message=FALSE,echo=TRUE, fig.height=7, fig.width=7}
+
+cca_w <- vegan::cca(otus.ps.vegan ~  pH + C_org + C + NH4 + NO3 + temp, data=metadata)
+
+kate.ggcca.sites(cca_w)
+
+```
+
+#### Stats
+
+```{r}
+
+anova(cca_w, parallel = 10)
+anova(cca_w, by="terms", parallel = 10)
+anova(cca_w, by="mar", parallel = 10)
+vif.cca(cca_w)
+
+```
+
+### CCA for taxons - family level
+
+```{r,eval=FALSE ,echo=TRUE, fig.height=9, fig.width=9, message=FALSE, warning=FALSE}
+
+ps.ff <-  phyloseq::filter_taxa(ps.f, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
+ps.varstab <- ps_vst(ps.ff, "Repeat")
+ps.varstab.merged <- phyloseq::merge_samples(ps.varstab, "Repeat")
+ps.varstab.merged.family <- tax_glom(ps.varstab.merged, taxrank="Family")
+
+physeq <- ps.varstab.merged.family
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+otus.ps.vegan <- veganifyOTU(physeq)
+metadata <- as(sample_data(physeq), "data.frame") 
+cca_w_varstab_family <- vegan::cca(otus.ps.vegan ~  temp + pH + C_org + NH4,  data=metadata)
+
+kate.ggcca.species <- function(vare.cca, physeq){
+
+  biplot <- as.data.frame(vare.cca$CCA$biplot)
+  
+  wa <- as.data.frame(vare.cca$CCA$v) %>% 
+    rownames_to_column("ID")
+  seq <- wa
+  f <- as.data.frame(physeq@tax_table@.Data) %>% 
+    dplyr::select("Family") %>% 
+    rownames_to_column("ID")
+  
+  wa <- full_join(wa, f) %>% 
+    dplyr::select(-ID) %>% 
+    dplyr::rename(Label = Family ) %>% 
+    mutate(Score = "sites")
+  
+  biplot <- rownames_to_column(biplot, "Label") %>% 
+    add_column(Score = rep("biplot", length(rownames(biplot))))
+  fdat_amazing <- rbind(biplot, wa) %>% 
+    mutate(Label = as.factor(Label))
+  
+  p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+    geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+    geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+    geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) + 
+    theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+    # geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+    return(p)
+}
+
+kate.ggcca.species(cca_w_varstab_family, physeq) 
+
+```
+
+### ASV level
+
+```{r echo=TRUE, fig.height=10, fig.width=10, message=FALSE}
+
+ps.ff <-  phyloseq::filter_taxa(ps.f, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
+ps.varstab <- ps_vst(ps.ff, "Repeat")
+ps.varstab.merged <- phyloseq::merge_samples(ps.varstab, "Repeat")
+physeq <- ps.varstab.merged
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+
+otus.ps.vegan <- veganifyOTU(physeq)
+metadata <- as(sample_data(physeq), "data.frame") 
+
+# different vars of fichas
+# cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  Humidity + pH + C_org + C +  K + NH4 + NO3 + temp,  data=metadata)
+# cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  pH + C_org + NH4 + temp,  data=metadata)
+
+cca_w_varstab_asv <- vegan::cca(otus.ps.vegan ~  pH + C_org + C +  K + NH4 + NO3 + temp + P,  data=metadata)
+
+wa <- as.data.frame(cca_w_varstab_asv$CCA$v) %>% 
+  rownames_to_column("ID")
+
+taxa.pruned <- as.data.frame(ps.varstab@tax_table@.Data) %>% 
+  rownames_to_column("ID")
+
+taxa.pruned <- taxa.pruned %>%  
+  mutate_all(as.character)
+
+# old.tips <- tree$tip.label
+# matches <- regmatches(tree$tip.label, gregexpr("[[:digit:]]+", tree$tip.label))
+# taxa.pruned$number <- as.numeric(unlist(matches))
+# Shitty taxa formating part
+
+taxa.pruned$taxa <- ifelse(is.na(taxa.pruned$Genus),
+                            ifelse(is.na(taxa.pruned$Family),
+                            ifelse(is.na(taxa.pruned$Order), 
+                            ifelse(is.na(taxa.pruned$Class), taxa.pruned$Phylum, taxa.pruned$Class) , taxa.pruned$Order), taxa.pruned$Family), taxa.pruned$Genus)
+taxa.pruned[taxa.pruned == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
+taxa.pruned[taxa.pruned == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Pararhizobium"
+
+taxa.pruned$taxa2 <- ifelse(is.na(taxa.pruned$Species),
+                            with(taxa.pruned, paste0(taxa)),
+                            with(taxa.pruned, paste0(taxa, " ", Species )))
+taxa.pruned$phylum <- ifelse(taxa.pruned$Phylum == "Proteobacteria", with(taxa.pruned, paste0(taxa.pruned$Class)), with(taxa.pruned, paste0(taxa.pruned$Phylum)))
+taxa.pruned$Label <- paste0(taxa.pruned$ID, "_", taxa.pruned$taxa2)
+
+wa <- full_join(wa, taxa.pruned, by="ID") %>% 
+  mutate(Score = "sites")
+
+#For the top 50 most abundant taxa, skip if use des res
+sw <- summarize_all(as.data.frame(ps.varstab@otu_table), sum)
+head_asv <- as_tibble(t(sw), rownames = "ID") %>% 
+  arrange(desc(V1)) %>% top_n(n = 100) %>% 
+  pull(ID)
+
+wa <- filter(wa, ID %in% head_asv)
+# maybe only different by des? Picture will be nice.
+# wa <- filter(wa, ID %in% row.des)
+# wa <- filter(wa, ID %in% row.des.so)
+
+biplot <- as.data.frame(cca_w_varstab_asv$CCA$biplot)
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+
+fdat_amazing <- plyr::rbind.fill(biplot, wa) %>% 
+  mutate(Label = as.factor(Label))
+fdat_amazing <- fdat_amazing %>%
+  mutate(label_size = ifelse(Score == "biplot", 4.5, 3))
+
+p.cca.species <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2)) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red", arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label, colour = phylum), size=fdat_amazing$label_size) + 
+  xlab(paste0(round(cca$CCA$eig[1], 3)*100, "% CCA1")) +
+  ylab(paste0(round(cca$CCA$eig[2], 3)*100, "% CCA2")) +
+  grids(linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  theme(legend.position = "top", panel.background = element_rect(fill = "white", colour = "grey50"))
+
+
+p.cca.species
+
+```
+
+#### Stats
+
+```{r}
+
+anova(cca_w_varstab_asv, parallel = 10)
+anova(cca_w_varstab_asv, by="terms", parallel = 10)
+anova(cca_w_varstab_asv, by="mar", parallel = 10)
+vif.cca(cca_w_varstab_asv)
+
+```
+
+### The last CCA plot
+
+```{r, echo=TRUE, fig.height=9, fig.width=9, message=FALSE}
+
+wa <- as.data.frame(cca_w_varstab_asv$CCA$v) %>% 
+  rownames_to_column("ID")
+
+taxa.pruned <- as.data.frame(ps.varstab@tax_table@.Data) %>% 
+  rownames_to_column("ID")
+taxa.pruned <- taxa.pruned %>%  mutate_all(as.character)
+taxa.pruned$phylum_pro <- ifelse(taxa.pruned$Phylum == "Proteobacteria", with(taxa.pruned, paste0(taxa.pruned$Class)), with(taxa.pruned, paste0(taxa.pruned$Phylum)))
+
+wa <- full_join(wa, taxa.pruned, by="ID") %>% 
+  mutate(Score = "sites") %>% 
+  dplyr::rename(Label = ID)
+
+biplot <- as.data.frame(cca_w_varstab_asv$CCA$biplot)
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+
+
+fdat_amazing <- plyr::rbind.fill(biplot, wa) %>% 
+  mutate(Label = as.factor(Label))
+
+p.cca.too.much <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, color = phylum_pro)) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_label(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), mapping = aes(x=CCA1, y=CCA2, label=Label)) +
+  theme(legend.position = "top", panel.background = element_rect(fill = "white", colour = "grey50")) 
+  # geom_mark_ellipse(aes(group = Site, label = Site), label.fontsize = 10, label.buffer = unit(2, "mm"), label.minwidth = unit(5, "mm"),con.cap = unit(0.1, "mm"))
+  
+p.cca.too.much
+
+```
+
+### Plot of geographic map
+
+```{r}
+
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(tidyverse)
+library(sf)
+library(rgeos)
+library(ggrepel)
+
+world <- ne_countries(scale = "large", returnclass = "sf")
+spdf_france_geounit <- ne_states(geounit = 'russia', returnclass = "sf")
+probdata = tibble(site = c("Quarry on Chernozem", "Quarry on Gleyic"),
+                  longitude = c(43.51137, 43.77252), 
+                  latitude =  c(43.82965, 43.35022), 
+                  xlabel = c(40, 47), 
+                  ylabel = c(44.3, 43))
+
+ ggplot(data = world) + 
+  geom_sf() +
+  geom_sf(data = spdf_france_geounit, fill="green",  alpha = 0.1 ) +
+  # geom_sf(data = lakes ) +
+  coord_sf(xlim = c(35, 50), ylim = c(40, 50), expand = FALSE) +
+  geom_point(data = probdata, aes(x = longitude, y = latitude), size = 3, 
+  shape = 20, colour = "red") +
+  geom_text(data = probdata, aes(x = xlabel, y = ylabel, label = site), size = 5, colour="red") + 
+  theme_bw() 
+
+```
+
+## Venn
+### Custom venns by ggVenn package
+
+```{r, message=FALSE,echo=TRUE, fig.height=9, fig.width=9}
+
+library(ggVennDiagram)
+
+
+get_list_from_ps <- function(physeq, amaz_fac) {
+  my_keys <- levels(sample_data(physeq)[[amaz_fac]])
+  mylist <- vector(mode="list", length=length(my_keys))
+  names(mylist) <- my_keys
+  for (i in levels(sample_data(physeq)[[amaz_fac]])) { 
+    x <- prune_samples(sample_data(physeq)[[amaz_fac]] %in% i, physeq)
+    x <- prune_taxa(taxa_sums(x) > 0, x)
+    mylist[[i]] <- taxa_names(x)
+  }
+  return(mylist)
+}
+
+physeq <- ps.f
+
+ggVennDiagram(get_list_from_ps(physeq, "What")) + 
+  ggplot2::scale_fill_viridis_c(option = "D", begin=0.2)
+
+```
+
+### Ampvis2 venns
+
+```{r, fig.height=5, fig.width=5}
+
+amp.cc <- phyloseq_to_amp(ps.cc)
+
+p.venn.cc <- amp_venn(amp.cc,
+         group_by = "Quarry_or_Benchmark",
+         normalise = TRUE,
+         cut_a = 0.000001,
+         cut_f=0.000001,
+            )
+
+p.venn.cc
+
+```
+
+## philR
+### Progress
+
+```{r, fig.height=8, fig.width=24, warning=FALSE}
+
+library(philr)
+library(glmnet)
+
+GP <- ps.cc
+GP.f <-  phyloseq::filter_taxa(GP, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
+GP <- GP.f
+phy_tree(GP) <- makeNodeLabel(phy_tree(GP), method="number", prefix='n')
+GP <- transform_sample_counts(GP, function(x) x+1)
+
+otu.table <- otu_table(GP)
+tree <- phy_tree(GP)
+metadata <- sample_data(GP)
+tax <- tax_table(GP)
+# is.binary(tree)
+# is.rooted(tree)
+
+gp.philr <- philr(otu.table, tree, 
+                  part.weights='enorm.x.gm.counts', 
+                  ilr.weights='blw.sqrt')
+
+gp.dist <- dist(gp.philr, method="euclidean")
+glmmod <- glmnet(gp.philr, sample_data(GP)$Quarry_or_Benchmark , alpha=1, family="binomial")
+
+cv.res <- cv.glmnet(gp.philr, as.double(sample_data(GP)$Quarry_or_Benchmark), nfolds = 3, family = "binomial", type.measure = "mse")
+
+top.coords <- as.matrix(coefficients(glmmod, cv.res$lambda.min))
+top.coords <- rownames(top.coords)[which(top.coords != 0)]
+top.coords <- top.coords[2:length(top.coords)]
+tc.names <- sapply(top.coords, function(x) name.balance(tree, tax, x))
+tc.names
+
+```
+
+```{r}
+
+gp.philr.long <- convert_to_long(gp.philr, get_variable(GP, 'Quarry_or_Benchmark')) %>%
+  filter(coord %in% top.coords)
+
+# gp.philr.long$taxa <- paste0("n",str_sub(gp.philr.long$coord, 2)) %>% 
+#   as.factor() %>% 
+#   recode(!!!tc.names)
+
+balance_taxa <- levels(gp.philr.long$taxa)
+
+library(naturalsort)
+
+ggplot(gp.philr.long, aes(x=labels, y=value)) +
+  geom_boxplot(fill='lightgrey') +
+  facet_grid(.~coord, scales='free_x') +
+  xlab('Quarry or Benchmark') + ylab('Balance Value') +
+  theme_bw() 
+
+```
+
+```{r,  fig.height=7, fig.width=7}
+library(ggtree)
+
+plot_philr <- function(){
+  
+  tc.nn <- name.to.nn(tree, top.coords)
+  tc.colors <- scales::viridis_pal()(length(top.coords))
+  p <- ggtree(tree, layout='fan')
+  top.seq <- seq(1, length(top.coords))
+  
+  for (i in top.seq){
+    p <- p + geom_balance(node=tc.nn[i], fill=tc.colors[i], alpha=0.6)
+  }
+  
+  for (i in top.coords){
+    p <- annotate_balance(tree, i, p=p,
+                          labels = c(paste0(i, "+"),
+                                     paste0(i, "-")),
+                   offset.text=0.15,
+                   bar=FALSE)
+  }
+  
+  p
+  
+}   
+
+plot_philr()
+
+```
+
+```{r}
+
+votes <- philr::name.balance(tree, tax, 'n583', return.votes = c('up', 'down'))
+message("up.votes")
+sort(votes[[c('up.votes', 'Order')]])
+message("down.votes")
+sort(votes[[c('down.votes', 'Order')]])
+
+```
+
+### Urvan
+
+```{r, fig.height=8, fig.width=24}
+
+library(philr)
+library(glmnet)
+
+GP <- ps.nc
+GP.f <-  phyloseq::filter_taxa(GP, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
+GP <- GP.f
+phy_tree(GP) <- makeNodeLabel(phy_tree(GP), method="number", prefix='n')
+GP <- transform_sample_counts(GP, function(x) x+1)
+
+otu.table <- otu_table(GP)
+tree <- phy_tree(GP)
+metadata <- sample_data(GP)
+tax <- tax_table(GP)
+# is.binary(tree)
+# is.rooted(tree)
+
+gp.philr <- philr(otu.table, tree, 
+                  part.weights='enorm.x.gm.counts', 
+                  ilr.weights='blw.sqrt')
+
+gp.dist <- dist(gp.philr, method="euclidean")
+glmmod <- glmnet(gp.philr, sample_data(GP)$Quarry_or_Benchmark , alpha=1, family="binomial")
+
+cv.res <- cv.glmnet(gp.philr, as.double(sample_data(GP)$Quarry_or_Benchmark), nfolds = 3, family = "binomial", type.measure = "mse")
+
+
+top.coords <- as.matrix(coefficients(glmmod, cv.res$lambda.min))
+top.coords <- rownames(top.coords)[which(top.coords != 0)]
+top.coords <- top.coords[2:length(top.coords)]
+tc.names <- sapply(top.coords, function(x) name.balance(tree, tax, x))
+tc.names
+
+```
+
+
+
+```{r}
+
+gp.philr.long <- convert_to_long(gp.philr, get_variable(GP, 'Quarry_or_Benchmark')) %>%
+  filter(coord %in% top.coords)
+
+# gp.philr.long$taxa <- paste0("n",str_sub(gp.philr.long$coord, 2)) %>% 
+#   as.factor() %>% 
+#   recode(!!!tc.names)
+
+balance_taxa <- levels(gp.philr.long$taxa)
+
+library(naturalsort)
+ggplot(gp.philr.long, aes(x=labels, y=value)) +
+  geom_boxplot(fill='lightgrey') +
+  facet_grid(.~coord, scales='free_x') +
+  xlab('Quarry or Benchmark') + ylab('Balance Value') +
+  theme_bw() 
+
+```
+
+```{r,  fig.height=7, fig.width=7}
+
+plot_philr()
+
+```
+
+Some trick to understand what going on - philr output is not easy walk.
+
+
+```{r}
+
+votes <- name.balance(tree, tax, 'n358', return.votes = c('up', 'down'))
+message("up.votes")
+sort(votes[[c('up.votes', 'Order')]])
+message("down.votes")
+sort(votes[[c('down.votes', 'Order')]])
+
+```
+n358 - splitting inside Actinomycetotas order Thermoleophilia. Solirubrobacterales more quarry specific than Gaiellales.\
+Visualisations of abundance inside Thermoleophilia order.
+
+
+```{r}
+
+ps.merged <- phyloseq::merge_samples(GP, "Quarry_or_Benchmark")
+ps.merged@sam_data$Quarry_or_Benchmark <- as.factor(c("Benchmark", "Quarry"))
+
+colorspalette <- c("#fde725", "#35b779")
+
+part_tree_ph <- function(order){
+  ps.strange <- prune_taxa(
+    rownames(filter(
+      as.data.frame(ps.merged@tax_table@.Data),Class==order)),
+    ps.merged)
+  p <- plot_tree(ps.strange,
+            ladderize="FALSE",
+            color="Quarry_or_Benchmark", 
+            label.tips="Genus",
+            size="abundance",
+            sizebase=2,
+            plot.margin=0.5,
+            base.spacing=0.03) + 
+    scale_color_manual(values=c(colorspalette))
+  return(p)
+}
+
+part_tree_ph("Thermoleophilia")
+
+```
+```{r,  fig.height=9, fig.width=7}
+ps.strange <- prune_taxa(
+    rownames(filter(
+      as.data.frame(GP@tax_table@.Data),Class=="Thermoleophilia")),
+    ps.merged)
+
+amp <- phyloseq_to_amp(ps.strange)
+amp_heatmap(amp, tax_show = 30, group_by = "Quarry_or_Benchmark", tax_aggregate = "Genus", tax_class = "Proteobacteria", tax_add = "Order") + theme_bw() + theme(text = element_text(size=15), legend.position = "none") + theme(axis.text.x=element_text(angle=45,hjust=1))
+
+```
+
+## Package versions
+
+```{r}
+
+sessionInfo()
+
+```
