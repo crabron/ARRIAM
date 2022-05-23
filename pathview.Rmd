@@ -1,0 +1,107 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r setup, include=FALSE}
+
+# knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/cellulolit/s2/")
+
+```
+
+`
+```{r}
+
+list.files()
+
+```
+
+
+```{r}
+
+library(clusterProfiler)
+library(enrichplot)
+library(data.table)
+library(pathview)
+
+
+```
+
+```{r}
+
+enrich_data_table <- function(path){
+  c1_annotations <- read.csv2(path, header = T, sep = '\t')
+  kegg_data <- c1_annotations[c(1,12)]
+  kegg_data$KEGG_ko <- gsub(pattern =  "ko:",replacement =  "", as.character(kegg_data$KEGG_ko))
+  kegg_data <- data.table(kegg_data)
+  kegg_data <- kegg_data[, list(KEGG_ko = unlist(strsplit(KEGG_ko , ","))), by = X.query]
+  kegg_final <- kegg_data[,c(2,1)]
+  return(kegg_final)
+}
+
+d14 <- enrich_data_table("14.faa.emapper.annotations")
+d29 <- enrich_data_table("29.faa.emapper.annotations")
+d26 <- enrich_data_table("26.faa.emapper.annotations")
+d46 <- enrich_data_table("46.faa.emapper.annotations")
+
+l = list(d14=d14, d29=d29, d26=d26, d46=d46)
+fun = function(df){length(rownames(df))}
+lapply(l, fun)
+
+l %>% purrr::reduce(pull, by = "KEGG_ko")
+l
+d14 %>% pull(KEGG_ko)
+ids_all <- merge()
+d14
+kegg_data <- c1_annotations[c(1,12)]
+kegg_data$KEGG_ko <- gsub(pattern =  "ko:",replacement =  "", as.character(kegg_data$KEGG_ko))
+kegg_data <- data.table(kegg_data)
+kegg_data <- kegg_data[, list(KEGG_ko = unlist(strsplit(KEGG_ko , ","))), by = X.query]
+kegg_final <- kegg_data[,c(2,1)]
+
+idsC123 <- Merge_C1C2C3_1[,1]
+kegg_final
+c1_annotations
+kegg_data
+kegg_final
+
+```
+
+```{r}
+
+cell_marker_data <- read.csv2("Human_cell_markers.txt", header = T, sep = '\t')
+
+cell_marker_data
+
+cells <- cell_marker_data %>%
+    dplyr::select(cellName, geneID) %>%
+    mutate(geneID = as.character(geneID)) %>% 
+    dplyr::mutate(geneID = strsplit(geneID, ', ')) %>%
+    tidyr::unnest()
+
+cells
+
+d14
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
