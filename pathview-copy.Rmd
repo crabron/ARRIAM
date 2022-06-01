@@ -1,0 +1,613 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+```{r setup, include=FALSE}
+
+# knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/rstudio/bact4x/")
+setwd("~/storage/cellulolit/s2/")
+
+```
+
+`
+```{r}
+
+list.files()
+
+```
+
+
+```{r}
+
+
+library(clusterProfiler)
+library(enrichplot)
+library(data.table)
+library(pathview)
+library(tidyverse)
+
+```
+
+```{r}
+
+enrich_data_table <- function(path){
+  c1_annotations <- read.csv2(path, header = T, sep = '\t')
+  kegg_data <- c1_annotations[c(1,12)]
+  kegg_data$KEGG_ko <- gsub(pattern =  "ko:",replacement =  "", as.character(kegg_data$KEGG_ko))
+  kegg_data <- data.table(kegg_data)
+  kegg_data <- kegg_data[, list(KEGG_ko = unlist(strsplit(KEGG_ko , ","))), by = X.query]
+  kegg_final <- kegg_data[,c(2,1)]
+  return(kegg_final)
+}
+
+d14 <- enrich_data_table("../bact4x/14.faa.emapper.annotations")
+d29 <- enrich_data_table("../bact4x/29.faa.emapper.annotations")
+d26 <- enrich_data_table("../bact4x/26.faa.emapper.annotations")
+d46 <- enrich_data_table("../bact4x/46.faa.emapper.annotations")
+
+l = list(d14=d14, d29=d29, d26=d26, d46=d46)
+fun = function(df){length(rownames(df))}
+lapply(l, fun)
+
+l %>% purrr::reduce(pull, by = "KEGG_ko")
+l
+d14 %>% pull(KEGG_ko)
+ids_all <- merge()
+d14
+kegg_data <- c1_annotations[c(1,12)]
+kegg_data$KEGG_ko <- gsub(pattern =  "ko:",replacement =  "", as.character(kegg_data$KEGG_ko))
+kegg_data <- data.table(kegg_data)
+kegg_data <- kegg_data[, list(KEGG_ko = unlist(strsplit(KEGG_ko , ","))), by = X.query]
+kegg_final <- kegg_data[,c(2,1)]
+
+idsC123 <- Merge_C1C2C3_1[,1]
+kegg_final
+c1_annotations
+kegg_data
+kegg_final
+
+```
+
+```{r}
+
+cell_marker_data <- read.csv2("Human_cell_markers.txt", header = T, sep = '\t')
+
+cell_marker_data
+
+cells <- cell_marker_data %>%
+    dplyr::select(cellName, geneID) %>%
+    mutate(geneID = as.character(geneID)) %>% 
+    dplyr::mutate(geneID = strsplit(geneID, ', ')) %>%
+    tidyr::unnest()
+
+cells
+
+d14
+```
+
+
+
+
+```{r}
+
+c1_annotations <- read.csv2("14.faa.emapper.annotations", header = T, sep = '\t',skip = 4)
+kegg_data <- c1_annotations[c(1,12)]
+kegg_data$KEGG_ko <- gsub(pattern =  "ko:",replacement =  "", as.character(kegg_data$KEGG_ko))
+kegg_data
+
+
+```
+
+error chunk
+
+```{r}
+kegg_data <- kegg_data[, list(KEGG_ko = unlist(strsplit(KEGG_ko , ","))), by = X.query]
+?enricher
+
+```
+
+
+```{r}
+
+library(clusterProfiler)
+library(enrichplot)
+library(data.table)
+library(pathview)
+
+c1_annotations <- read.csv2("c1_annotations", header = T, sep = '\t',skip = 4)
+kegg_data <- c1_annotations[c(1,12)]
+kegg_data$KEGG_ko <- gsub(pattern =  "ko:",replacement =  "", as.character(kegg_data$KEGG_ko))
+kegg_data <- data.table(kegg_data)
+kegg_data <- kegg_data[, list(KEGG_ko = unlist(strsplit(KEGG_ko , ","))), by = X.query]
+kegg_final <- kegg_data[,c(2,1)]
+idsC123 <- Merge_C1C2C3_1[,1]
+enr_res <- enricher(idsC123, TERM2GENE=kegg_final, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 10)
+dotplot(enr_res_idsall6, showCategory= 50)
+kk <- enrichKEGG(gene         = enr_res@result$ID,
+                 organism     = 'ko',
+                 pvalueCutoff = 0.05)
+
+
+ko01100 <- pathview(gene.data  = kk@gene,
+                    pathway.id = "ko01100",
+                    species    = "ko", )
+
+ko00500 <- pathview(gene.data  = kk@gene,
+                    pathway.id = "ko00500",
+                    species    = "ko")
+
+```
+
+```{r}
+
+c1_annotations <- read.csv2('../bact4x/14.faa.emapper.annotations', header = T, sep = '\t',skip = 4)
+c1_annotations
+
+```
+
+
+```{r}
+
+kegg_data <- c1_annotations[c(1,12)]
+kegg_data
+kegg_data$KEGG_ko <- gsub(pattern =  "ko:",replacement =  "", as.character(kegg_data$KEGG_ko))
+kegg_data <- data.table(kegg_data)
+
+
+
+
+kegg_data <- kegg_data[, list(KEGG_ko = unlist(strsplit(KEGG_ko , ","))), by = X.query]
+kegg_data
+kegg_final <- kegg_data[,c(2,1)]
+
+```
+
+
+
+
+
+```{r}
+
+cell_marker_data <- vroom::vroom('http://bio-bigdata.hrbmu.edu.cn/CellMarker/download/Human_cell_markers.txt')
+
+## instead of `cellName`, users can use other features (e.g. `cancerType`)
+cells <- cell_marker_data %>%
+    dplyr::select(cellName, geneID) %>%
+    dplyr::mutate(geneID = strsplit(geneID, ', ')) %>%
+    tidyr::unnest()
+
+
+cells
+unique(cells$cells) %>% length()
+unique(cells$geneID) %>% length()
+
+```
+
+
+```{r}
+
+cell_marker_data
+
+
+
+```
+
+
+```{r}
+
+kegg_data[1,]
+
+```
+
+```{r}
+
+library(tidyverse)
+
+
+
+cells <- cell_marker_data %>%
+    dplyr::select(cellName, geneID) %>%
+    dplyr::mutate(geneID = strsplit(geneID, ', ')) %>%
+    tidyr::unnest()
+
+gene_query <- c14_annotations %>% 
+  dplyr::select(X.query, KEGG_ko) %>% 
+  dplyr::mutate(geneID = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest() %>% 
+  select(geneID) %>% 
+  filter(grepl('ko:', geneID)) %>% 
+  dplyr::mutate(geneID = substring(geneID, 4))
+
+create_kegg_query <- function(annotation){
+  anno <- annotation %>% 
+  dplyr::select(X.query, KEGG_ko) %>% 
+  dplyr::mutate(geneID = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest() %>% 
+  select(geneID) %>% 
+  filter(grepl('ko:', geneID)) %>% 
+  dplyr::mutate(geneID = substring(geneID, 4))
+  
+  return(anno)
+}
+
+
+c14_annotations <- read.csv2("14.faa.emapper.annotations", header = T, sep = '\t',skip = 4)
+c26_annotations <- read.csv2("26.faa.emapper.annotations", header = T, sep = '\t',skip = 4)
+c29_annotations <- read.csv2("29.faa.emapper.annotations", header = T, sep = '\t',skip = 4)
+c46_annotations <- read.csv2("46.faa.emapper.annotations", header = T, sep = '\t',skip = 0)
+
+query14 <- create_kegg_query(c14_annotations)
+query26 <- create_kegg_query(c26_annotations)
+query29 <- create_kegg_query(c29_annotations)
+query46 <- create_kegg_query(c46_annotations)
+query_all <- rbind(query1, query2, query3, query4)
+
+c14_keggcol <- create_kegg_query(c14_annotations)
+c26_keggcol <- create_kegg_query(c26_annotations)
+c29_keggcol <- create_kegg_query(c29_annotations)
+c46_keggcol <- create_kegg_query(c46_annotations)
+
+map(list(c14_annotations, c26_annotations, c29_annotations, c46_annotations), nrow)
+anno_list <- list(c14=c14_keggcol, 
+                  c26=c26_keggcol,
+                  c29=c29_keggcol,
+                  c46=c46_keggcol)
+
+create_df <- function(l, second){
+  dat <- data.frame(l)
+  dt_name <- dat %>% 
+    mutate(comm = rep(names(l), nrow(dat))) %>% 
+    relocate(comm, geneID) %>% 
+  return(rbind(dt_name, second))
+}
+
+reduce(anno_list, create_df)
+
+dt <- anno_list %>% 
+  map_df(I, .id = "comm") %>% 
+  tibble() %>% 
+  data.frame() %>% 
+  relocate(comm, geneID)
+
+dt
+
+data.frame(dt)
+
+levels(dt$comm)
+
+dt <- c46_keggcol %>% 
+  mutate(comm = rep('c46', nrow(c46_keggcol))) %>% 
+  tibble() %>%
+  data.frame() %>% 
+  relocate(comm, geneID)
+
+query$geneID
+library(clusterProfiler)
+class(query$geneID)
+dt
+
+enricher(query$geneID, TERM2GENE = dt)
+query_all
+
+res <- enricher(query$geneID, TERM2GENE = dt, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 10, maxGSSize = 100000)
+
+dotplot(res, showCategory= 50)
+
+
+res14 <- enricher(query14$geneID, TERM2GENE = dt, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 10, maxGSSize = 100000)
+dotplot(res14, showCategory= 50)
+
+res29 <- enricher(query26$geneID, TERM2GENE = dt, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 10, maxGSSize = 100000)
+dotplot(res29, showCategory= 50)
+
+res29 <- enricher(query29$geneID, TERM2GENE = dt, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 10, maxGSSize = 100000)
+dotplot(res29, showCategory= 50)
+
+res46 <- enricher(query46$geneID, TERM2GENE = dt, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 3, maxGSSize = 100000)
+dotplot(res46, showCategory= 50)
+
+
+res14 <- enricher(query46$geneID, TERM2GENE = dt, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 3, maxGSSize = 100000)
+
+res14
+
+dt
+head(res14)
+
+
+head(res14)
+
+```
+
+
+```{r}
+
+create_cog_query <- function(annotation){
+  anno <- annotation %>% 
+  select(X.query, COG_category) %>% 
+  dplyr::mutate(geneID = X.query) %>% 
+  relocate(COG_category, geneID) %>% 
+  select(-X.query)
+  
+  return(anno)
+}
+
+
+query14 <- create_cog_query(c14_annotations)
+query26 <- create_cog_query(c26_annotations)
+query29 <- create_cog_query(c29_annotations)
+query46 <- create_cog_query(c46_annotations)
+query14
+
+query_all <- rbind(query14, query26, query29, query46)
+query_all
+
+res <- enricher(query46$geneID, TERM2GENE = query_all, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 5, maxGSSize = 100000)
+res
+res@result
+dotplot(res, showCategory= 40)
+
+res@result %>% 
+  filter(p.adjust < 0.05) %>% 
+  filter(qvalue < 0.05) %>% 
+  mutate(p.adjust = round(p.adjust, 5)) %>% 
+  mutate(GeneRatio = as.integer(unlist(map(str_split(GeneRatio, '/'), 1))) /
+           as.integer(unlist(map(str_split(GeneRatio, '/'), 2)))  ) %>% 
+  arrange(desc(GeneRatio))
+
+
+head(res) %>% mutate(p.adjust = round(p.adjust, 5))
+
+```
+
+```{r}
+
+create_kegg_query <- function(annotation){
+  anno <- annotation %>% 
+  dplyr::select(X.query, KEGG_ko) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  dplyr::mutate(geneID = X.query) %>%
+  relocate(KEGG_ko, geneID) %>% 
+  select(-X.query)
+  return(anno)
+}
+
+
+query14 <- create_kegg_query(c14_annotations)
+query26 <- create_kegg_query(c26_annotations)
+query29 <- create_kegg_query(c29_annotations)
+query46 <- create_kegg_query(c46_annotations)
+
+query_all <- rbind(query14, query26, query29, query46)
+query_all
+
+res_kegg_46 <- enricher(query46$geneID, TERM2GENE = query_all, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 5, maxGSSize = 100000)
+query_all
+res_kegg_46@result
+dotplot(res_kegg_46, showCategory= 40)
+
+res_kegg_46@result
+
+kegg_top_46 <- res_kegg_46@result %>%
+  filter(p.adjust < 0.05) %>% 
+  filter(qvalue < 0.05) %>% 
+  mutate(p.adjust = round(p.adjust, 5)) %>% 
+  mutate(GeneRatio = as.integer(unlist(map(str_split(GeneRatio, '/'), 1))) /
+           as.integer(unlist(map(str_split(GeneRatio, '/'), 2)))  ) %>% 
+  arrange(desc(GeneRatio)) %>% 
+  head(24) %>% 
+  select(ID)
+
+kegg_top_46
+
+res_kegg_46@result
+
+res_kegg_46@result %>%
+  filter(p.adjust < 0.05) %>% 
+  filter(qvalue < 0.05) %>% 
+  mutate(p.adjust = round(p.adjust, 5)) %>% 
+  mutate(BgRatio = as.integer(unlist(map(str_split(BgRatio, '/'), 1))) /
+           as.integer(unlist(map(str_split(BgRatio, '/'), 2)))  ) %>% 
+  arrange(desc(BgRatio)) %>% 
+    group_by(Description) %>% 
+  count() %>% 
+  arrange(desc(n)) 
+
+
+kegg_value <- res_kegg_46@result %>%
+  filter(p.adjust < 0.05) %>% 
+  filter(qvalue < 0.05) %>% 
+  mutate(p.adjust = round(p.adjust, 5)) %>% 
+  mutate(GeneRatio = as.integer(unlist(map(str_split(GeneRatio, '/'), 1))) /
+           as.integer(unlist(map(str_split(GeneRatio, '/'), 2)))  ) %>% 
+  arrange(desc(GeneRatio)) %>% 
+  select(ID)
+
+kegg_value$ID
+
+
+rbind(c14_annotations, c26_annotations, c29_annotations, c46_annotations) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  filter(KEGG_ko %in% kegg_value$ID) %>% 
+  select(-c(X.query, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  group_by(Description) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+c46_valued_disc
+
+rbind(c14_annotations, c26_annotations, c29_annotations, c46_annotations) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  filter(KEGG_ko %in% kegg_top_46$ID) %>% 
+  select(-c(X.query, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == 'K07718')
+  
+rbind(c14_annotations, c26_annotations, c29_annotations, c46_annotations) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  filter(KEGG_ko %in% kegg_top_46$ID) %>% 
+  select(-c(X.query, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == 'K01995') %>% 
+  group_by(COG_category) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+
+rbind(c14_annotations, c26_annotations, c29_annotations, c46_annotations) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  filter(KEGG_ko %in% kegg_top_46$ID) %>% 
+  select(-c(X.query, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == 'K01995') %>% 
+  group_by(Description) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+
+```
+
+c29
+
+```{r}
+
+res_kegg_29 <- enricher(query29$geneID, TERM2GENE = query_all, pvalueCutoff = 0.05, pAdjustMethod = "BH", qvalueCutoff = 0.05, minGSSize = 5, maxGSSize = 100000)
+
+
+kegg_value_29 <- res_kegg_29@result %>%
+  filter(p.adjust < 0.05) %>% 
+  filter(qvalue < 0.05) %>% 
+  mutate(p.adjust = round(p.adjust, 5)) %>% 
+  mutate(GeneRatio = as.integer(unlist(map(str_split(GeneRatio, '/'), 1))) /
+           as.integer(unlist(map(str_split(GeneRatio, '/'), 2)))  ) %>% 
+  arrange(desc(GeneRatio))
+
+%>% 
+  select(ID) %>% 
+  
+
+kegg_value_29
+
+rbind(c14_annotations, c26_annotations, c29_annotations, c46_annotations) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  filter(KEGG_ko %in% kegg_value_29$ID) %>% 
+  select(-c(X.query, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  group_by(Description) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+c46_valued_disc
+
+rbind(c14_annotations, c26_annotations, c29_annotations, c46_annotations) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  filter(KEGG_ko %in% kegg_top_46$ID) %>% 
+  select(-c(X.query, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == 'K07718')
+  
+rbind(c14_annotations, c26_annotations, c29_annotations, c46_annotations) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  filter(KEGG_ko %in% kegg_top_46$ID) %>% 
+  select(-c(X.query, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == 'K01995') %>% 
+  group_by(COG_category) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+
+rbind(c14_annotations, c26_annotations, c29_annotations, c46_annotations) %>% 
+  dplyr::mutate(KEGG_ko = strsplit(KEGG_ko, ',')) %>% 
+  tidyr::unnest()%>% 
+  filter(grepl('ko:', KEGG_ko)) %>% 
+  dplyr::mutate(KEGG_ko = substring(KEGG_ko, 4)) %>% 
+  filter(KEGG_ko %in% kegg_top_46$ID) %>% 
+  select(-c(X.query, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == 'K01995') %>% 
+  group_by(Description) %>% 
+  count() %>% 
+  arrange(desc(n))
+
+```
+
+
+```{r}
+
+dotplot(res_kegg_46, showCategory= 20)
+
+
+
+```
+
+```{r}
+
+dotplot(res_kegg_29, showCategory= 20)
+
+
+```
+
+
+```{r}
+
+cell_marker_data <- vroom::vroom('http://bio-bigdata.hrbmu.edu.cn/CellMarker/download/Human_cell_markers.txt')
+cell_marker_data
+
+cells <- cell_marker_data %>%
+    dplyr::select(cellName, geneID) %>%
+    dplyr::mutate(geneID = strsplit(geneID, ', ')) %>%
+    tidyr::unnest()
+
+as.factor(cells$cellName)
+cells$cellName
+cells
+
+```
+
+
+```{r}
+
+
+
+```
+
+
+```{r}
+
+
+
+```
+
+
+
+
