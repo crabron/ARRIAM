@@ -1,138 +1,8 @@
-
-veganifyOTU <- function(physeq){
-  require(phyloseq)
-  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
-  return(as(otu_table(physeq), "matrix"))
-}
-
-
-pop.taxa <- function(physeq, badTaxa){
-  require(phyloseq)
-  allTaxa = taxa_names(physeq)
-  myTaxa <- allTaxa[!(allTaxa %in% badTaxa)]
-  return(prune_taxa(myTaxa, physeq))
-}
-
-
-delete_mit_chl <- function(ps){
-  require(phyloseq)
-  badTaxa <- taxa_names(subset_taxa(ps, Order=="Chloroplast"))
-  ps <- pop.taxa(ps, badTaxa)
-  badTaxa <- taxa_names(subset_taxa(ps, Family=="Mitochondria"))
-  ps <- pop.taxa(ps, badTaxa)
-  return(ps)
-}
-
-delete_mit_chl_for_rdp <- function(ps){
-  require(phyloseq)
-  badTaxa <- taxa_names(subset_taxa(ps, Class=="Chloroplast"))
-  ps <- pop.taxa(ps, badTaxa)
-  return(ps)
-}
-
-beta_for_Al <- function(ps){
-  require(phyloseq)
-  require(ggplot2)
-  require(ggpubr)
-  
-  #beta and ordination
-  
-  ordination.b <- ordinate(ps, "PCoA", "bray")
-  ordination.u <- ordinate(ps, "PCoA", "unifrac")
-  ordination.w <- ordinate(ps, "PCoA", "wunifrac")
-  
-  #plotting
-  # first row for 1-2 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Al", shape="Inoculation", title="PCoA - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color="Al", shape="Inoculation", title="PCoA - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Al", shape="Inoculation", title="PCoA - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  #second row for 1-3 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Al", shape="Inoculation", title="PCoA - Bray", 
-                      axes = c(1,3) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p2.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color="Al", shape="Inoculation", title="PCoA - unifrac", 
-                      axes = c(1,3) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p2.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Al", shape="Inoculation", title="PCoA - wunifrac", 
-                      axes = c(1,3) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p2.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, p2.1, p2.2, p2.3, ncol = 3 , nrow = 2)
-  
-  return(p.all)
-}
-
-
-kate.ggcca.sites <- function(vare.cca){
-  require(ggvegan)
-  require(vegan)
-  require(ggplot2)
-  require(dplyr)
-  require(ggrepel)
-    fdat <- fortify(vare.cca)
-  p.sites <- ggplot(fdat %>% filter(Score %in% c("sites","biplot"))) + geom_point(data = fdat %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + geom_segment(data = fdat %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8,
-                                                                                                                                                                                                           color = "red",arrow = arrow(angle = 3))  + 
-  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) 
-  p <- p.sites + theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
-  return(p)
-}
-
-
-kate.ggcca.species <- function(vare.cca){
-  
-  require(ggvegan)
-  require(vegan)
-  require(ggplot2)
-  require(dplyr)
-  require(ggrepel)
-  fdat <- fortify(vare.cca)
-  p.sites <- ggplot(fdat %>% filter(Score %in% c("species","biplot"))) + geom_point(data = fdat %>% dplyr::filter(Score == "species"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + geom_segment(data = fdat %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.4,
-                                                                                                                                                                                                         color = "blue",arrow = arrow(angle = 3))  + 
-    geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) 
-  p <- p.sites + theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
-  return(p)
-  return(p)
-}
-
-
 phyloseq_to_amp <- function(ps){
-    require(ampvis2)
-    require(tibble)
-    require(phyloseq)
-    OTU1 = as(otu_table(ps), "matrix")
-    OTU1 <- t(OTU1)
-    OTUdf = as.data.frame(OTU1)
-    taxa.ps <- as(tax_table(ps), "matrix")
-    taxa.df = as.data.frame(taxa.ps)
-    my_otu_table <- merge(OTUdf, taxa.df, by=0)
-    my_otu_table <- column_to_rownames(my_otu_table, var="Row.names")
-
-    my_metadata <- as_tibble(sample_data(ps), rownames=NA)
-    my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
-    my_tree <- phy_tree(ps)
-    amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
-    return(amp.ps)
-}
-
-phyloseq_to_amp_without_tree <- function(ps){
   require(ampvis2)
   require(tibble)
   require(phyloseq)
+  colnames(ps@tax_table@.Data) <- c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")
   OTU1 = as(otu_table(ps), "matrix")
   OTU1 <- t(OTU1)
   OTUdf = as.data.frame(OTU1)
@@ -143,485 +13,126 @@ phyloseq_to_amp_without_tree <- function(ps){
   
   my_metadata <- as_tibble(sample_data(ps), rownames=NA)
   my_metadata <- rownames_to_column(my_metadata,var = "SampleID")
-  amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata)
+  my_tree <- phy_tree(ps)
+  amp.ps <- amp_load(otutable = my_otu_table, metadata = my_metadata, tree = my_tree)
   return(amp.ps)
 }
 
-
-beta_for_Al_with_norm_NMDS <- function(ps, seed = 5433){
+plot_alpha_w_toc <- function(ps, group, metric) {
+  
   require(phyloseq)
   require(ggplot2)
-  require(ggpubr)
-  require(DESeq2)
-
   
-  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
   
-  diagdds = phyloseq_to_deseq2(ps, ~ Description)                  
-  diagdds = estimateSizeFactors(diagdds, type="poscounts")
-  diagdds = estimateDispersions(diagdds, fitType = "local") 
-  pst <- varianceStabilizingTransformation(diagdds)
-  pst.dimmed <- t(as.matrix(assay(pst))) 
-  pst.dimmed[pst.dimmed < 0.0] <- 0.0
-  ps.varstab <- ps
-  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+  stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+    rstatix::tukey_hsd()
+  y <- seq(max(er[[metric]]), length=length(stat.test$p.adj.signif[stat.test$p.adj.signif != "ns"]), by=max(er[[metric]]/20))
   
-  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
-  
-  #beta and ordination
-  
-  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
-  ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
-  ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
-  
-  #plotting
-  # first row for 1-2 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Al", shape="Inoculation", title="NMDS - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color="Al", shape="Inoculation", title="NMDS - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Al", shape="Inoculation", title="NMDS - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, ncol = 3 , nrow = 1)
-  
-  return(p.all)
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) +
+    stat_pvalue_manual(
+      stat.test, 
+      label = "p.adj.signif", 
+      y.position = y,
+      hide.ns=TRUE) +
+    theme_light() + 
+    scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 90),
+          axis.title.x=element_blank()) +
+    labs(y=paste(metric, "index")) 
 }
 
-
-beta_for_Al_with_NMDS <- function(ps5){
+beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color="What", Group="Repeat"){
   require(phyloseq)
   require(ggplot2)
   require(ggpubr)
-
-  
-  #beta and ordination
+  library(ggforce)
   
   ordination.b <- ordinate(ps, "NMDS", "bray")
-  ordination.u <- ordinate(ps, "NMDS", "unifrac")
-  ordination.w <- ordinate(ps, "NMDS", "wunifrac")
+  mds <- as.data.frame(ordination.b$points)
+  p  <-  plot_ordination(ps,
+                         ordination.b,
+                         type="sample",
+                         color = Color,
+                         # title="NMDS - Bray-Curtis",
+                         title=NULL,
+                         axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    annotate("text",
+             x=min(mds$MDS1) + abs(min(mds$MDS1))/10,
+             y=max(mds$MDS2),
+             label=paste0("Stress -- ", round(ordination.b$stress, 3))) +
+    geom_mark_ellipse(aes_string(group = Group, label = Group),
+                      label.fontsize = 10,
+                      label.buffer = unit(2, "mm"),
+                      label.minwidth = unit(5, "mm"),
+                      con.cap = unit(0.1, "mm"),
+                      con.colour='gray') +
+    theme(legend.position = "none") 
   
-  #plotting
-  # first row for 1-2 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Al", shape="Inoculation", title="NMDS - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color="Al", shape="Inoculation", title="NMDS - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Al", shape="Inoculation", title="NMDS - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, ncol = 3 , nrow = 1)
-  
-  return(p.all)
-}
-
-permanova.inoculation <- function(ps, dist = "bray"){
-  require(phyloseq)
-  require(vegan)
-  dist <- distance(ps, dist)
-  metadata <- as(sample_data(ps), "data.frame")
-  ad <- adonis2(dist ~ Inoculation, data = metadata)
-  return(ad)
-}
-
-
-permanova.custom <- function(ps, split = FALSE, factor = "Type", factor_variance = "pos", dist = "bray", formula = dist ~ Repeats){
-  require(phyloseq)
-  require(vegan)
-  while (split){
-    ps.Cd <- prune_samples(sample_data(ps)$Cd %in% c("pos"), ps)
-    ps.Cd <- prune_taxa(taxa_sums(ps.Cd) > 0, ps.Cd)    
-  }
-  dist <- distance(ps, dist)
-  metadata <- as(sample_data(ps), "data.frame")
-  ad <- adonis2(dist ~ split_factor, data = metadata)
-  return(ad)
-}
-
-
-permanova.al <- function(ps, dist = "bray"){
-  require(phyloseq)
-  require(vegan)
-  dist <- distance(ps, dist)
-  metadata <- as(sample_data(ps), "data.frame")
-  ad <- adonis2(dist ~ Al, data = metadata)
-  return(ad)
-}
-
-
-al.ggcca.sites <- function(vare.cca){
-  require(ggvegan)
-  require(vegan)
-  require(ggplot2)
-  require(dplyr)
-  require(ggrepel)
-  fdat <- fortify(vare.cca)
-  p.sites <- ggplot(fdat %>% filter(Score %in% c("sites","biplot"))) + geom_point(data = fdat %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + geom_segment(data = fdat %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8,
-                                                                                                                                                                                                         color = "red",arrow = arrow(angle = 3))  + 
-    geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) 
-  p <- p.sites + theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
   return(p)
 }
 
-beta_for_Al_with_alter_norm_NMDS <- function(ps, seed = 235){
-  require(phyloseq)
-  require(ggplot2)
-  require(ggpubr)
-  require(DESeq2)
-  
-  
-  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
-  
-  diagdds <- phyloseq_to_deseq2(ps, ~ Description)                  
-  diagdds = estimateSizeFactors(diagdds, type="poscounts")
-  diagdds = estimateDispersions(diagdds, fitType = "local") 
-  pst <- varianceStabilizingTransformation(diagdds)
-  pst.dimmed <- t(as.matrix(assay(pst))) 
-  pst.dimmed[pst.dimmed < 0.0] <- 0.0 
-  ps.varstab <- ps            
-  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE)
-  
-  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
-  
-  #beta and ordination
-  
-  
-  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
-  ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
-  ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
-  
-  #plotting
-  # first row for 1-2 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Al", shape="Inoculation", title="NMDS - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color="Al", shape="Inoculation", title="NMDS - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Al", shape="Inoculation", title="NMDS - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, ncol = 3 , nrow = 1)
-  
-  return(p.all)
+
+plot_rich_reads_samlenames_lm <- function(physeq){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Repeat"] <-unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "straw-its2-", 2), function(x) x[[2]]))
+  reads.summary["Site"] <- physeq@sam_data$Day
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + 
+    geom_point(aes(y=otus, x=log2(reads), color=Site),size=3) + 
+    geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Site, "_", Repeat))) + 
+    theme_bw() +
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Site, color=Site),method=lm, se=FALSE, ymin = 1) + 
+    scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+
+  return(p1)
 }
 
-
-al.ggcca.species <- function(vare.cca){
-  require(vegan)
-  require(ggplot2)
+bargraph <- function(ps, rank, threshold=0.05){
   require(dplyr)
-  require(ggrepel)
-  fdat <- fortify(vare.cca)
-  p.sites <- ggplot(fdat %>% filter(Score %in% c("species","biplot"))) + geom_point(data = fdat %>% dplyr::filter(Score == "species"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + geom_segment(data = fdat %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8,
-                                                                                                                                                                                                             color = "red",arrow = arrow(angle = 3))  + 
-    geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=4) 
-  p <- p.sites + theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
-  return(p)
-}
-
-Des.Al <- function(ps){
-  diagdds = phyloseq_to_deseq2(ps, ~ Drought)                  
-  diagdds = estimateSizeFactors(diagdds, type="poscounts")
-  diagdds = estimateDispersions(diagdds, fitType = "local") 
-  diagdds = DESeq(diagdds)
-  samp <-sample_data(ps)
-  dds.counts <- diagdds@assays@.xData$data$counts
-  dds.counts.df <- as.data.frame(dds.counts)
-  aggdata <- t(aggregate.data.frame(t(dds.counts.df), by=list(samp$Drought), median))
-  colnames(aggdata) <- aggdata[1,]
-  aggdata <- aggdata[-1,]
-  res = results(diagdds)
-  res.df <- as.data.frame(res)
-  nice <- cbind(res.df,as.data.frame(tax_table(ps)[rownames(res.df),]), as.data.frame(aggdata)[rownames(res.df),])               
-  return(nice)
-}      
-
-Des.Tax = function(ps, Taxa){
-  ps <- taxa_level(ps, Taxa)
-  diagdds = phyloseq_to_deseq2(ps, ~ Drought)                  
-  diagdds = estimateSizeFactors(diagdds, type="poscounts")
-  diagdds = estimateDispersions(diagdds, fitType = "local") 
-  diagdds = DESeq(diagdds)
-  samp <-sample_data(ps)
-  dds.counts <- diagdds@assays@.xData$data$counts
-  dds.counts.df <- as.data.frame(dds.counts)
-  aggdata <- t(aggregate.data.frame(t(dds.counts.df), by=list(samp$Drought), median))
-  colnames(aggdata) <- aggdata[1,]
-  aggdata <- aggdata[-1,]
-  res = results(diagdds)
-  res.df <- as.data.frame(res)
-  nice <- cbind(res.df, as.data.frame(aggdata)[rownames(res.df),])
-  return(nice)
-}  
-
-mantel.wrap.veg <- function(ps){}
-
-beta_for_Plates_with_norm_NMDS <- function(ps, seed = 5433){
-  require(phyloseq)
   require(ggplot2)
-  require(ggpubr)
-  require(DESeq2)
+  require(phyloseq)
   
+  ps <- prune_taxa(taxa_sums(ps) > 0, ps)
+  ps2 <- tax_glom(ps, taxrank = rank)
+  ps3 = transform_sample_counts(ps2, function(x) x / sum(x) )
+  data <- psmelt(ps3) # create dataframe from phyloseq object
+  data$Plot <- as.character(data[,rank]) # convert to character
+  data$Plot[data$Abundance < threshold] <- paste0("<", threshold, " abund.")
+  medians <- data %>% group_by(Plot) %>% mutate(median=median(data$Abundance))
+  remainder <- medians[medians$median <= threshold,]$Plot
   
-  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
+  # create palette long enough for our data
+  base.palette <- c("darkblue", "darkgoldenrod1", "darkseagreen", "darkorchid", "darkolivegreen1", "lightskyblue", 
+                    "darkgreen", "deeppink", "khaki2", "firebrick", "brown1", "darkorange1", "cyan1", "royalblue4", 
+                    "darksalmon", "dodgerblue3", "steelblue1", "darkgoldenrod1", "brown1", "cyan1", "darkgrey")
+  required.colors <- nlevels(factor(data$Plot))
+  repeats = required.colors %/% length(base.palette) + 1
+  palette <- rep(base.palette, length.out = repeats * length(base.palette))
   
-  diagdds = phyloseq_to_deseq2(ps, ~ Repeats)                  
-  diagdds = estimateSizeFactors(diagdds, type="poscounts")
-  diagdds = estimateDispersions(diagdds, fitType = "local") 
-  pst <- varianceStabilizingTransformation(diagdds)
-  pst.dimmed <- t(as.matrix(assay(pst))) 
-#  pst.dimmed[pst.dimmed < 0.0] <- 0.0
-  ps.varstab <- ps
-  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  p <- ggplot(data=data, aes(x=Sample, y=Abundance, fill=Plot))
+  p + geom_bar(aes(), stat="identity", position="stack") + theme_light() +
+    scale_fill_manual(values = palette) +
+    theme(legend.position="bottom") + guides() +
+    theme(axis.text.x = element_text(angle = 90)) +
+    ggtitle('ITS2 - Phylum level')
   
-  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
-  
-  #beta and ordination
-  
-  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
-  ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
-  ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
-  
-  #plotting
-  # first row for 1-2 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Type", shape="Soil", title="NMDS - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color="Type", shape="Soil", title="NMDS - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Type", shape="Soil", title="NMDS - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, ncol = 3 , nrow = 1)
-  
-  return(p.all)
 }
 
-beta_for_Plates <- function(ps){
-  require(phyloseq)
-  require(ggplot2)
-  require(ggpubr)
-  
-  #beta and ordination
-  
-  ordination.b <- ordinate(ps, "PCoA", "bray")
-  ordination.u <- ordinate(ps, "PCoA", "unifrac")
-  ordination.w <- ordinate(ps, "PCoA", "wunifrac")
-  
-  #plotting
-  # first row for 1-2 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Type", shape="Soil", title="PCoA - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color="Type", shape="Soil", title="PCoA - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Type", shape="Soil", title="PCoA - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  #second row for 1-3 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Type", shape="Soil", title="PCoA - Bray", 
-                      axes = c(1,3) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p2.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample",color="Type", shape="Soil", title="PCoA - unifrac", 
-                      axes = c(1,3) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p2.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Type", shape="Soil", title="PCoA - wunifrac", 
-                      axes = c(1,3) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p2.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, p2.1, p2.2, p2.3, ncol = 3 , nrow = 2)
-  
-  return(p.all)
-}
 
-beta_for_Svir_with_norm_NMDS <- function(ps, seed = 5433){
-  require(phyloseq)
-  require(ggplot2)
-  require(ggpubr)
-  require(DESeq2)
-  
-  
-  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
-  
-  diagdds = phyloseq_to_deseq2(ps, ~ Repeats)                  
-  diagdds = estimateSizeFactors(diagdds, type="poscounts")
-  diagdds = estimateDispersions(diagdds, fitType = "local") 
-  pst <- varianceStabilizingTransformation(diagdds)
-  pst.dimmed <- t(as.matrix(assay(pst))) 
-  #  pst.dimmed[pst.dimmed < 0.0] <- 0.0
-  ps.varstab <- ps
-  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
-  
-  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
-  
-  #beta and ordination
-  
-  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
-  ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
-  ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
-  
-  #plotting
-  # first row for 1-2 axis
-  
-  p = plot_ordination(ps, ordination.b, type="sample", color="Type", shape="Soil", title="NMDS - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color="Type", shape="Soil", title="NMDS - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color="Type", shape="Soil", title="NMDS - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, ncol = 3 , nrow = 1)
-  
-  return(p.all)
-}
-
-beta_for_Plates_with_norm_NMDS <- function(ps, seed = 5433){
-  require(phyloseq)
-  require(ggplot2)
-  require(ggpubr)
-  require(DESeq2)
-  
-  
-  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
-  
-  diagdds = phyloseq_to_deseq2(ps, ~ Repeats)                  
-  diagdds = estimateSizeFactors(diagdds, type="poscounts")
-  diagdds = estimateDispersions(diagdds, fitType = "local") 
-  pst <- varianceStabilizingTransformation(diagdds)
-  pst.dimmed <- t(as.matrix(assay(pst))) 
-  #  pst.dimmed[pst.dimmed < 0.0] <- 0.0
-  ps.varstab <- ps
-  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
-  
-  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
-  
-  #beta and ordination
-  
-  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
-  ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
-  ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
-  
-  #plotting
-  # first row for 1-2 axis
-  
-  p = plot_ordination(ps.varstab, ordination.b, type="sample", color="Type", shape="Soil", title="NMDS - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps.rand, ordination.u, type="sample", color="Type", shape="Soil", title="NMDS - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps.varstab, ordination.w, type="sample", color="Type", shape="Soil", title="NMDS - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, ncol = 3 , nrow = 1)
-  
-  return(p.all)
-}
-
-beta_custom_norm_NMDS <- function(ps, seed = 6788, normtype="vst", color="Cd", shape="Drought"){
-  require(phyloseq)
-  require(ggplot2)
-  require(ggpubr)
-  require(DESeq2)
-  
-  # beta_NMDS <- function(){
-  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
-  
-  diagdds = phyloseq_to_deseq2(ps, ~ Repeats)                  
-  diagdds = estimateSizeFactors(diagdds, type="poscounts")
-  diagdds = estimateDispersions(diagdds, fitType = "local") 
-  if (normtype =="vst")
-    pst <- varianceStabilizingTransformation(diagdds)
-  if (normtype =="log") 
-    pst <- rlogTransformation(diagdds)
-  
-  pst.dimmed <- t(as.matrix(assay(pst))) 
-  pst.dimmed[pst.dimmed < 0.0] <- 0.0
-  ps.varstab <- ps
-  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
-  
-  ps.rand <- rarefy_even_depth(ps, rngseed = seed)
-  
-  #beta and ordination
-  
-  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
-  ordination.u <- ordinate(ps.rand, "NMDS", "unifrac")
-  ordination.w <- ordinate(ps.varstab, "NMDS", "wunifrac")
-  
-  #plotting
-  p = plot_ordination(ps, ordination.b, type="sample", color, shape, title="NMDS - Bray", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.1 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.u, type="sample", color, shape, title="NMDS - unifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.2 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  p = plot_ordination(ps, ordination.w, type="sample", color, shape, title="NMDS - wunifrac", 
-                      axes = c(1,2) ) + theme_bw() + theme(text = element_text(size = 14)) + geom_point(size = 3) 
-  p1.3 <- p + stat_ellipse( type="norm", alpha=0.7)
-  
-  #merge by ggpubr
-  
-  p.all <- ggarrange(p1.1, p1.2, p1.3, ncol = 3 , nrow = 1, common.legend = TRUE, legend = "right")
-  
-  return(p.all)
-}
+amp_heatmap(amp.cc, tax_show = 30, group_by = "Association", tax_aggregate = "Genus", tax_add = "Phylum", tax_class = "Proteobacteria") +
+  theme_bw() + 
+  theme(text = element_text(size=15), legend.position = "none") + 
+  theme(axis.text.x=element_text(angle=45,hjust=1))
