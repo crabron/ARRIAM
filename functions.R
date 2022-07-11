@@ -136,3 +136,17 @@ amp_heatmap(amp.cc, tax_show = 30, group_by = "Association", tax_aggregate = "Ge
   theme_bw() + 
   theme(text = element_text(size=15), legend.position = "none") + 
   theme(axis.text.x=element_text(angle=45,hjust=1))
+
+
+
+
+ps_object <- ps 
+ps_object <- subset_taxa(ps_object, Phylum != "NA")
+
+ps_object@tax_table[is.na(ps_object@tax_table)] <- TRUE
+ps_object <- subset_taxa(ps_object,
+                         !(Family  == "Mitochondria" |
+                             Class   == "Chloroplast" |
+                             Order   == "Chloroplast"))
+ps_object@tax_table <- dplyr::na_if(ps_object@tax_table, TRUE)
+ps.f <- ps_object
