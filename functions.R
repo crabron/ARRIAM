@@ -1,3 +1,8 @@
+
+# установить ampvis2(ставится с гитхаба, в CRAN и Bioconductor вроде нет), tidyverse -- https://www.tidyverse.org/ там много классных штук
+# https://stepik.org/course/724/promo - про dplyr - уроки 1.5 - 1.6 оч было бы неплохо если бы ты их прошел(без фанатизма)
+# https://www.rstudio.com/resources/cheatsheets/ - и вот это - распечатываешь(в цвете!) про те пакеты которыми ты пользуешься и тогда становится понятно про что гуглить
+
 phyloseq_to_amp <- function(ps){
   require(ampvis2)
   require(tibble)
@@ -18,6 +23,7 @@ phyloseq_to_amp <- function(ps){
   return(amp.ps)
 }
 
+# прогони то же, но с разряжением(разницы быть не должно, но ты попробуй)
 plot_alpha_w_toc <- function(ps, group, metric) {
   
   require(phyloseq)
@@ -53,6 +59,9 @@ beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color=
   require(ggpubr)
   library(ggforce)
   
+  
+  # попробуй заменить NMDS на PCoA
+  # https://joey711.github.io/phyloseq/plot_ordination-examples.html и вот здесь куча вариантов ординаций в phyloseq - попробуй нарисовать отдельно для таксонов, а не образцов(не моей функцией, у меня зависнет, и лучше PCoA - так быстрее))
   ordination.b <- ordinate(ps, "NMDS", "bray")
   mds <- as.data.frame(ordination.b$points)
   p  <-  plot_ordination(ps,
@@ -69,6 +78,91 @@ beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color=
              x=min(mds$MDS1) + abs(min(mds$MDS1))/10,
              y=max(mds$MDS2),
              label=paste0("Stress -- ", round(ordination.b$stress, 3))) +
+    geom_mark_ellipse(aes_string(group = Group, label = Group),
+                      label.fontsize = 10,
+                      label.buffer = unit(2, "mm"),
+                      label.minwidth = unit(5, "mm"),
+                      con.cap = unit(0.1, "mm"),
+                      con.colour='gray') +
+    theme(legend.position = "none") 
+  
+  return(p)
+}
+
+# бета с разряжением -- нужен seed! 
+
+beta_custom_norm_NMDS_elli_rar <- function(ps, seed = 7888, normtype="vst", Color="What", Group="Repeat"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  library(ggforce)
+  
+  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
+  #variant with only bray
+  
+  ps.rar <- rarefy_even_depth(ps)
+  
+  ordination.b <- ordinate(ps.rar, "NMDS", "bray")
+  p  <-  plot_ordination(ps.rar,
+                         ordination.b,
+                         type="sample",
+                         color = Color,
+                         # title="NMDS - Bray-Curtis",
+                         title=NULL,
+                         axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    geom_mark_ellipse(aes_string(group = Group, label = Group),
+                      label.fontsize = 10,
+                      label.buffer = unit(2, "mm"),
+                      label.minwidth = unit(5, "mm"),
+                      con.cap = unit(0.1, "mm"),
+                      con.colour='gray') +
+    theme(legend.position = "none") 
+  
+  return(p)
+}
+
+
+# Variance stabilisation из пакета DESeq2 
+
+beta_custom_norm_NMDS_elli <- function(ps, seed = 7888, normtype="vst", Color="What", Group="Repeat"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  require(DESeq2)
+  library(ggforce)
+  
+  #normalisation. unifrac - rarefaction; wunifrac,bray - varstab
+  #variant with only bray
+  
+  if (exists("ps.varstab") == FALSE){
+    diagdds = phyloseq_to_deseq2(ps, ~ Site)                  
+    diagdds = estimateSizeFactors(diagdds, type="poscounts")
+    diagdds = estimateDispersions(diagdds, fitType = "local") 
+    if (normtype =="vst")
+      pst <- varianceStabilizingTransformation(diagdds)
+    if (normtype =="log") 
+      pst <- rlogTransformation(diagdds)
+    
+    pst.dimmed <- t(as.matrix(assay(pst))) 
+    pst.dimmed[pst.dimmed < 0.0] <- 0.0
+    ps.varstab <- ps
+    otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  }
+  
+  ordination.b <- ordinate(ps.varstab, "NMDS", "bray")
+  p  <-  plot_ordination(ps.varstab,
+                         ordination.b,
+                         type="sample",
+                         color = Color,
+                         # title="NMDS - Bray-Curtis",
+                         title=NULL,
+                         axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
     geom_mark_ellipse(aes_string(group = Group, label = Group),
                       label.fontsize = 10,
                       label.buffer = unit(2, "mm"),
@@ -100,6 +194,7 @@ plot_rich_reads_samlenames_lm <- function(physeq){
   return(p1)
 }
 
+# рабочая функция, рисует барплоты, можешь посмотреть как филы отличаются от образца к образцу
 bargraph <- function(ps, rank, threshold=0.05){
   require(dplyr)
   require(ggplot2)
