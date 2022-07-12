@@ -150,3 +150,15 @@ ps_object <- subset_taxa(ps_object,
                              Order   == "Chloroplast"))
 ps_object@tax_table <- dplyr::na_if(ps_object@tax_table, TRUE)
 ps.f <- ps_object
+
+
+
+ps_f_ph_1 <- tax_glom(ps.f, taxrank="Genus")
+
+plot_tree(ps_f_ph_1,
+          ladderize="left",
+          color="Phylum", 
+          label.tips="Class",
+          base.spacing=0.015,
+          text.size = 5)
+
