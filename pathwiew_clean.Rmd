@@ -1,0 +1,306 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+
+
+
+```{r}
+
+anno <- vroom::vroom(fs::dir_ls(glob="*.faa.emapper.annotations"), id = "community") %>% 
+  mutate(consortium = factor(community, labels = c("OS2","OS4","PS4","BL6"))) %>% 
+  select(-community) %>% 
+  relocate(consortium) %>% 
+  rename(geneID="#query")
+
+anno
+
+```
+
+### taxonomy
+
+
+```{r}
+
+kr <- vroom::vroom(fs::dir_ls(glob="*_res_kraken.tsv"), id = "community", 
+             col_names=c("ID", "tax","delete", "Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species")) %>% 
+  mutate(consortium = factor(community, labels = c("OS2","OS4","PS4","BL6"))) %>% 
+  select(- c(community, delete)) %>% 
+  relocate(consortium)  %>% 
+    mutate(
+    dplyr::across(
+      .cols = everything(), 
+      .fns = ~ replace(.x, stringr::str_detect(.x, paste(c("Unassigned"),collapse = '|')), NA)
+    )
+  ) %>% 
+    mutate(
+    dplyr::across(
+      .cols = c("Kingdom", "Phylum", "Class", "Order", "Family", "Genus", "Species"), 
+      .fns = ~ str_sub(.x, 4)
+    )
+  ) 
+
+```
+
+```{r}
+
+kr
+
+```
+
+
+```{r}
+
+cgc <- list.files(pattern="cgc\\d+\\d+") %>% 
+  lapply(function(x){
+   read_tsv(., col_names = c("order", "Type", "ID", "ID_full", "pos", "fas", "stra", "desc")) 
+  }
+) %>% 
+  map_df(I, .id = "community") %>% 
+  mutate(consortium = factor(community, labels = c("OS2","OS4","PS4","BL6"))) %>% 
+  select(-community) %>% 
+  left_join(kr, by = c("consortium"="consortium","ID"="ID"))
+
+```
+
+
+
+for all
+
+
+
+```{r}
+
+query_list <- list(c14=query14, c26=query26, c29=query29, c46=query46)
+
+enrich_processing_all <- function(l){
+  
+  first <- l %>% 
+    as.data.frame() %>%
+    # pull(paste0(l[1], ".geneID")) %>%
+    pull(geneID) 
+  
+  second <- query_all
+ 
+  res <- enricher(first,
+                  TERM2GENE = second,
+                  pvalueCutoff = 0.05,
+                  pAdjustMethod = "BH",
+                  qvalueCutoff = 0.05,
+                  minGSSize = 5,
+                  maxGSSize = 100000)
+
+  res_f <- res@result %>%
+    filter(p.adjust < 0.05) %>%
+    filter(qvalue < 0.05) %>%
+    mutate(p.adjust = round(p.adjust, 5)) %>%
+    mutate(GeneRatio = as.integer(unlist(map(str_split(GeneRatio, '/'), 1))) /
+           as.integer(unlist(map(str_split(GeneRatio, '/'), 2)))  ) %>%
+   arrange(desc(GeneRatio))
+
+  return(res_f)
+}
+
+enrich_all <- lapply(query_list, enrich_processing_all)
+
+d_all <- enrich_all %>% 
+  lapply(function(x) {as.data.frame(x) %>%
+      head(20) %>% select(-c(Description, geneID))
+    }) %>% 
+  map_df(I, .id = "community") %>% 
+  tibble() %>% 
+  data.frame()
+
+lapply(unique(d_all$ID) %>%  list(), function(x){
+  split(x, ceiling(seq_along(x)/10))})
+
+kegg_values_all <- lapply(unique(d_all$ID) %>% list(), function(x){
+  split(x, ceiling(seq_along(x)/10)) %>% 
+  lapply(keggGet) %>% 
+  unlist(recursive = FALSE)  
+})
+
+d_all
+
+kegg_values_ul_2 <-  unlist(kegg_values_all, recursive = FALSE) 
+
+ent <- lapply(kegg_values_ul_2, function(x){print(x$ENTRY)}) %>% 
+  unlist() %>% 
+  unname()
+
+k_d <- data.frame(KEGG_ko = ent,
+           names = unlist(unname(n_l)),
+           path = lapply(p_l, function(x) {x[[1]]}) %>% 
+  lapply(function(x) {ifelse(is.null(x), NA, x)}) %>% 
+  unname() %>% 
+  unlist()
+)
+
+
+enrich_d_plus <- rename(d_all, "KEGG_ko" = "ID")
+
+kk_d <- k_d %>% 
+  distinct() 
+
+desc <- left_join(enrich_d_plus, kk_d)
+
+left_join(enrich_d_plus, kk_d)
+
+write_tsv(desc, file = "desc.tsv")
+
+```
+
+
+
+```{r}
+
+lapply(enrich_list_more, function(x){anno_all %>% 
+  filter(KEGG_ko %in% x$ID) %>% 
+  select(-c(geneID, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == x$ID) %>% 
+  group_by(COG_category) %>% 
+  count() %>% 
+  arrange(desc(n))
+}
+)
+
+lapply(enrich_list_more, function(x){anno_all %>% 
+  filter(KEGG_ko %in% x$ID) %>% 
+  select(-c(geneID, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == x$ID) %>% 
+  group_by(Description, KEGG_ko, COG_category) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  filter(!COG_category  %in% c("P", "L", "V", "E", "C", "J", "G")) %>% 
+  relocate(Description, .after = last_col())
+}
+)
+
+
+lapply(enrich_list_more, function(x){anno_all %>% 
+  filter(KEGG_ko %in% x$ID) %>% 
+  select(-c(geneID, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == x$ID) %>% 
+  group_by(KEGG_ko, COG_category, Description) %>% 
+  count() %>% 
+  arrange(desc(n)) %>% 
+  filter(COG_category %in% c("V"))
+}
+)
+
+
+lapply(enrich_list_more, function(x){anno_all %>% 
+  filter(KEGG_ko %in% x$ID) %>% 
+  select(-c(geneID, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == x$ID) %>% 
+  filter(COG_category %in% c("C")) %>% 
+  group_by(KEGG_ko) %>% 
+  count() 
+}
+)
+
+
+lapply(enrich_list_more, function(x){anno_all %>% 
+  filter(KEGG_ko %in% x$ID) %>% 
+  select(-c(geneID, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == x$ID) %>% 
+  group_by(Description) %>% 
+  count() %>% 
+  arrange(desc(n))
+}
+)
+
+lapply(enrich_list_more, function(x){anno_all %>% 
+  filter(KEGG_ko %in% x$ID) %>% 
+  select(-c(geneID, evalue, score, seed_ortholog, eggNOG_OGs, KEGG_Module, GOs)) %>% 
+  distinct() %>% 
+  filter(KEGG_ko == x$ID) %>% 
+  group_by(CAZy) %>% 
+  count() %>% 
+  arrange(desc(n))
+}
+)
+
+```
+
+
+```{r}
+
+list.files()
+
+
+```
+### create plot 
+
+```{r}
+
+anno
+
+gh.count <- anno %>% 
+  filter(CAZy != "-") %>% 
+  filter(stringr::str_detect(CAZy, "GH")) %>% 
+  select(consortium, geneID, CAZy) %>% 
+  mutate(ID = gsub("\\_.*", "", geneID)) %>% 
+  left_join(kr, by=c("consortium", "ID")) %>% 
+  select(-Species) %>% 
+  group_by(consortium, Phylum, Class, Genus) %>% 
+  count(name = "GH") %>% 
+  arrange(desc(GH))
+
+cbm.count <- anno %>% 
+  filter(CAZy != "-") %>% 
+  filter(stringr::str_detect(CAZy, "CBM")) %>% 
+  select(consortium, geneID, CAZy) %>% 
+  mutate(ID = gsub("\\_.*", "", geneID)) %>% 
+  left_join(kr, by=c("consortium", "ID")) %>% 
+  select(-Species) %>% 
+  group_by(consortium, Phylum, Class, Genus) %>% 
+  count(name = "CBM") %>% 
+  arrange(desc(CBM))
+
+gt.count <- anno %>% 
+  filter(CAZy != "-") %>% 
+  filter(stringr::str_detect(CAZy, "GT")) %>% 
+  select(consortium, geneID, CAZy) %>% 
+  mutate(ID = gsub("\\_.*", "", geneID)) %>% 
+  left_join(kr, by=c("consortium", "ID")) %>% 
+  select(-Species) %>% 
+  group_by(consortium, Phylum, Class, Genus) %>% 
+  count(name = "GT") %>% 
+  arrange(desc(GT))
+
+e.count <- anno %>% 
+  select(consortium, geneID, CAZy) %>% 
+  mutate(ID = gsub("\\_.*", "", geneID)) %>% 
+  left_join(kr, by=c("consortium", "ID")) %>% 
+  select(-Species) %>% 
+  group_by(consortium, Phylum, Class, Genus) %>% 
+  count(name = "ORF") %>% 
+  arrange(desc(ORF))
+ 
+
+kr
+cgc_count <- cgc %>% 
+  mutate(CGC = paste0(ID, "_", str_sub(order, 4))) %>% 
+  select(-Species) %>%
+  group_by(consortium,Phylum, Class, Genus) %>% 
+  count(name="CGC") %>% 
+  arrange(desc(CGC))
+  
+write_tsv(cgc, file = "cgc_full.tsv")
+write_tsv(cgc_count, file = "cgc_count.tsv")
+
+```
+
+```{r}
+
+anno_all
+
+```
+
