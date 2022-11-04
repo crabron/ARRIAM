@@ -1,0 +1,1217 @@
+---
+title: "Straw -- WGCNA"
+author: "Grigory Gladkov"
+date: "8/30/2022"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 5
+    number_sections: true
+    theme: lumen
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/straw_dna_rna/16s/d2/")
+options(getClass.msg=FALSE)
+
+```
+
+## Импорт
+
+Импорт phyloseq объекта и библиотек \
+Датасет - хроносерия разложения соломы - от фактор Day 10ти уровней
+
+```{r, warning=FALSE, message=FALSE}
+
+library(phyloseq)
+library(tidyverse)
+library(ggpubr)
+library(ampvis2)
+library(ANCOMBC)
+library(heatmaply)
+library(compositions)
+library(igraph)
+library(WGCNA)
+require(DESeq2)
+require(phyloseq)
+
+ps.f <- readRDS("psf2")
+
+```
+
+## functions
+
+```{r}
+
+#phyloseq object to ampvis2 object
+#https://gist.github.com/KasperSkytte/8d0ca4206a66be7ff6d76fc4ab8e66c6
+
+phyloseq_to_ampvis2 <- function(physeq) {
+  #check object for class
+  if(!any(class(physeq) %in% "phyloseq"))
+    stop("physeq object must be of class \"phyloseq\"", call. = FALSE)
+  
+  #ampvis2 requires taxonomy and abundance table, phyloseq checks for the latter
+  if(is.null(physeq@tax_table))
+    stop("No taxonomy found in the phyloseq object and is required for ampvis2", call. = FALSE)
+  
+  #OTUs must be in rows, not columns
+  if(phyloseq::taxa_are_rows(physeq))
+    abund <- as.data.frame(phyloseq::otu_table(physeq)@.Data)
+  else
+    abund <- as.data.frame(t(phyloseq::otu_table(physeq)@.Data))
+  
+  #tax_table is assumed to have OTUs in rows too
+  tax <- phyloseq::tax_table(physeq)@.Data
+  
+  #merge by rownames (OTUs)
+  otutable <- merge(
+    abund,
+    tax,
+    by = 0,
+    all.x = TRUE,
+    all.y = FALSE,
+    sort = FALSE
+  )
+  colnames(otutable)[1] <- "OTU"
+  
+  #extract sample_data (metadata)
+  if(!is.null(physeq@sam_data)) {
+    metadata <- data.frame(
+      phyloseq::sample_data(physeq),
+      row.names = phyloseq::sample_names(physeq), 
+      stringsAsFactors = FALSE, 
+      check.names = FALSE
+    )
+    
+    #check if any columns match exactly with rownames
+    #if none matched assume row names are sample identifiers
+    samplesCol <- unlist(lapply(metadata, function(x) {
+      identical(x, rownames(metadata))}))
+    
+    if(any(samplesCol)) {
+      #error if a column matched and it's not the first
+      if(!samplesCol[[1]])
+        stop("Sample ID's must be in the first column in the sample metadata, please reorder", call. = FALSE)
+    } else {
+      #assume rownames are sample identifiers, merge at the end with name "SampleID"
+      if(any(colnames(metadata) %in% "SampleID"))
+        stop("A column in the sample metadata is already named \"SampleID\" but does not seem to contain sample ID's", call. = FALSE)
+      metadata$SampleID <- rownames(metadata)
+      
+      #reorder columns so SampleID is the first
+      metadata <- metadata[, c(which(colnames(metadata) %in% "SampleID"), 1:(ncol(metadata)-1L)), drop = FALSE]
+    }
+  } else
+    metadata <- NULL
+  
+  #extract phylogenetic tree, assumed to be of class "phylo"
+  if(!is.null(physeq@phy_tree)) {
+    tree <- phyloseq::phy_tree(physeq)
+  } else
+    tree <- NULL
+  
+  #extract OTU DNA sequences, assumed to be of class "XStringSet"
+  if(!is.null(physeq@refseq)) {
+    #convert XStringSet to DNAbin using a temporary file (easiest)
+    fastaTempFile <- tempfile(pattern = "ampvis2_", fileext = ".fa")
+    Biostrings::writeXStringSet(physeq@refseq, filepath = fastaTempFile)
+  } else
+    fastaTempFile <- NULL
+  
+  #load as normally with amp_load
+  ampvis2::amp_load(
+    otutable = otutable,
+    metadata = metadata,
+    tree = tree,
+    fasta = fastaTempFile
+  )
+}
+
+#variance stabilisation from DESeq2
+
+ps_vst <- function(ps, factor){
+  
+
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))              
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  # pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+#WGCNA visualisation
+#result - list class object with attributes:
+# ps - phyloseq object
+# amp - ampwis2 object
+# heat - heatmap with absalute read numbers
+# heat_rel - hetmap with relative abundances
+# tree - phylogenetic tree with taxonomy
+
+color_filt <- function(ps, df){
+  
+      library(tidyverse)
+      library(reshape2)
+      library(gridExtra)
+
+  
+  l = list()
+  for (i in levels(df$module)){
+    message(i)
+    color_name <-  df %>% 
+      filter(module == i) %>% 
+      pull(asv) %>% 
+      unique()
+    ps.col <- prune_taxa(color_name, ps)
+    amp.col <- phyloseq_to_ampvis2(ps.col)
+    heat <- amp_heatmap(amp.col, tax_show = 60, 
+              group_by = "Day", 
+              tax_aggregate = "OTU",
+              tax_add = "Genus", 
+              normalise=FALSE, 
+              showRemainingTaxa = TRUE)
+    
+    ps.rel  <-  phyloseq::transform_sample_counts(ps.col, function(x) x / sum(x) * 100)
+    amp.r <- phyloseq_to_ampvis2(ps.rel)
+    heat.rel <- amp_heatmap(amp.r, tax_show = 60, 
+          group_by = "Day", 
+          tax_aggregate = "OTU",
+          tax_add = "Genus", 
+          normalise=FALSE, 
+          showRemainingTaxa = TRUE)
+    
+    tree <- ps.col@phy_tree
+    taxa <- as.data.frame(ps.col@tax_table@.Data)
+    p1 <- ggtree(tree) + 
+              geom_tiplab(size=2, align=TRUE, linesize=.5) +
+              theme_tree2()
+    
+    taxa[taxa == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Allorhizobium"
+    taxa[taxa == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
+  
+    tx <- taxa %>% 
+      rownames_to_column("id") %>% 
+      mutate(id = factor(id, levels = rev(get_taxa_name(p1)))) %>% 
+      dplyr::select(-c(Kingdom, Species, Order)) %>% 
+      melt(id.var = 'id')
+
+    p2 <- ggplot(tx, aes(variable, id)) + 
+      geom_tile(aes(fill = value), alpha = 0.4) +
+      geom_text(aes(label = value), size = 3) +
+      theme_bw() + 
+      theme(legend.position = "none",
+             axis.ticks.x=element_blank(),
+             axis.text.y=element_blank(),
+             axis.ticks.y=element_blank(),
+             axis.title.x = element_blank(),
+            axis.title.y = element_blank()) 
+
+    p <- ggpubr::ggarrange(p1, p2, widths = c(0.9, 1))
+    l[[i]] <- list("ps" = ps.col, 
+                   "amp" = amp.col,
+                   "heat" = heat,
+                   "heat_rel" = heat.rel,
+                   "tree" = p,
+                   "taxa" = knitr::kable(taxa))
+                    
+  }
+  return(l)
+}
+
+detachAllPackages <- function() {
+
+  basic.packages <- c("package:stats","package:graphics","package:grDevices","package:utils","package:datasets","package:methods","package:base")
+
+  package.list <- search()[ifelse(unlist(gregexpr("package:",search()))==1,TRUE,FALSE)]
+
+  package.list <- setdiff(package.list,basic.packages)
+
+  if (length(package.list)>0)  for (package in package.list) detach(package, character.only=TRUE, force = TRUE)
+
+}
+
+plot_alpha_w_toc <- function(ps, group, metric) {
+  
+  require(phyloseq)
+  require(ggplot2)
+  
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+  stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+    rstatix::tukey_hsd()
+  y <-  seq(max(er[[metric]]), length=length(stat.test$p.adj), by=max(er[[metric]]/20))
+
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) +
+    ggpubr::stat_pvalue_manual(
+      stat.test, 
+      label = "p.adj.signif", 
+      y.position = y) +
+    theme_light() + 
+    scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 90),
+          axis.title.x=element_blank()) +
+    labs(y=paste(metric, "index")) 
+}
+
+
+# standart NMDS plot tool frop phyloseq with some additional aestatics 
+# have stress value on plot - may work as fuck
+beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color="What", Group="Repeat"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  library(ggforce)
+  
+  
+  ordination.b <- ordinate(ps, "NMDS", "bray")
+  mds <- as.data.frame(ordination.b$points)
+  p  <-  plot_ordination(ps,
+                         ordination.b,
+                         type="sample",
+                         color = Color,
+                         title="NMDS - Bray-Curtis",
+                         # title=NULL,
+                         axes = c(2,3) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    annotate("text",
+    x=min(mds$MDS1) + abs(min(mds$MDS1))/7,
+    y=max(mds$MDS2),
+    label=paste0("Stress -- ", round(ordination.b$stress, 3))) +
+    geom_mark_ellipse(aes_string(group = Group, label = Group),
+                      label.fontsize = 10,
+                      label.buffer = unit(2, "mm"),
+                      label.minwidth = unit(5, "mm"),
+                      con.cap = unit(0.1, "mm"),
+                      con.colour='gray') +
+    theme(legend.position = "none") +
+    ggplot2::scale_fill_viridis_c(option = "H")
+  
+  return(p)
+}
+
+
+# alpha with aov + tukie post-hock - useless, but it looks pretty good
+plot_alpha_w_toc <- function(ps, group, metric) {
+  
+  require(phyloseq)
+  require(ggplot2)
+  
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+  stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+    rstatix::tukey_hsd()
+  y <- seq(max(er[[metric]]), length=length(stat.test$p.adj.signif[stat.test$p.adj.signif != "ns"]), by=max(er[[metric]]/20))
+  
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) +
+    stat_pvalue_manual(
+      stat.test, 
+      label = "p.adj.signif", 
+      y.position = y,
+      hide.ns=TRUE) +
+    theme_light() + 
+    scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 90),
+          axis.title.x=element_blank()) +
+    labs(y=paste(metric, "index")) 
+}
+
+
+```
+
+
+## Alpha
+
+
+```{r, fig.width=14, fig.height=6}
+
+p1 <- plot_alpha_w_toc(ps = ps.f, group = "Day", metric = "Observed")
+p2 <- plot_alpha_w_toc(ps = ps.f, group = "Day", metric = "Shannon")
+p3 <- plot_alpha_w_toc(ps = ps.f, group = "Day", metric = "InvSimpson")
+ggarrange(p1, p2, p3, nrow = 1)
+
+
+```
+
+
+Add Group parameter to metadata - \
+- early - D01, D03, D05 \
+- middle - D07, D08, D10 \
+- late - D13, D14, D15
+
+```{r, warning=FALSE}
+
+sample.data <- ps.f@sam_data %>% 
+  data.frame() %>% 
+  mutate(Group = if_else(Day %in% c("D01", "D03", "D05"), "early", 
+                         if_else(Day %in% c("D07", "D08","D10"), "middle", "late"))) %>% 
+  mutate(Group = factor(Group, levels=c("early", "middle","late"))) %>% 
+  phyloseq::sample_data()
+
+sample_data(ps.f) <- sample.data
+
+p.observed <- plot_alpha_w_toc(ps = ps.f, group = "Group", metric = c("Observed")) + 
+  theme(axis.title.y = element_blank())
+
+p.shannon <- plot_alpha_w_toc(ps = ps.f, group = "Group", metric = c("Shannon")) + 
+  theme(axis.title.y = element_blank())
+
+p.simpson <- plot_alpha_w_toc(ps = ps.f, group = "Group", metric = c("InvSimpson")) + 
+  theme(axis.title.y = element_blank())
+
+ggpubr::ggarrange(p.observed, p.shannon, p.simpson, ncol = 3)
+
+
+```
+
+## beta statistic
+### permanova 
+
+permanova - group significantlly different - dispersion between is more, than inside groups
+
+```{r}
+
+dist <- phyloseq::distance(ps.f, "bray")
+metadata <- as(sample_data(ps.f@sam_data), "data.frame")
+vegan::adonis2(dist ~ Group, data = metadata)
+
+
+```
+### dynamic of beta diversity
+
+Дистанция брей кертиса по шагам между каждыми днями. \ 
+(Например - все D15 против D14) \ 
+Может на эту картинку подвесить еще почвенное дыхание?
+
+```{r, message=FALSE, warning=FALSE}
+
+ps.f.r <- rarefy_even_depth(ps.f, rngseed = 777)
+
+avg.r <- ps.f.r@otu_table %>% 
+  as.data.frame() %>%
+  vegan::avgdist(10)
+
+avg <- ps.f@otu_table %>% 
+  as.data.frame() %>%
+  vegan::avgdist(10)
+
+# avg %>%
+#   as.matrix() %>%
+#   as_tibble(rownames= "sample") %>%
+#   pivot_longer(-sample) %>%
+#   filter(sample < name) %>%
+#   mutate(repeat_a = str_replace(sample, ".*-", ""),
+#          repeat_b = str_replace(name, ".*-", ""), 
+#          day_a = as.numeric(str_replace(sapply(strsplit(sample, "-"), `[`, 3), "D", "")),
+#           day_b = as.numeric(str_replace(sapply(strsplit(name, "-"), `[`, 3), "D", "")),
+#          diff = abs(day_a - day_b),
+#          early = day_a < 10) %>% 
+#   filter(repeat_a == repeat_b & diff < 10) %>%
+#   group_by(diff, repeat_a, early) %>%
+#   summarize(median = median(value)) %>%
+#   ungroup() %>%
+#   ggplot(aes(x=diff, y=median, color=early, group=paste0(repeat_a, early))) +
+#   geom_line(size=0.25) +
+#   geom_smooth(aes(group=early), se=FALSE, size=4) +
+#   labs(x="Distance between time points",
+#        y="Median Bray-Curtis distance") +
+#   scale_x_continuous(breaks=1:9) +
+#   scale_color_manual(name=NULL,
+#                      breaks=c(TRUE, FALSE),
+#                      values=c("blue", "red"),
+#                      labels=c("Early", "Late")) +
+#   guides(color = guide_legend(override.aes = list(size=1))) +
+#   theme_classic()
+
+avg.r %>%
+  as.matrix() %>%
+  as_tibble(rownames= "sample") %>%
+  pivot_longer(-sample) %>%
+  filter(sample < name) %>%
+  mutate(repeat_a = str_replace(sample, ".*-", ""),
+         repeat_b = str_replace(name, ".*-", ""), 
+         day_a = as.numeric(str_replace(sapply(strsplit(sample, "-"), `[`, 3), "D", "")),
+          day_b = as.numeric(str_replace(sapply(strsplit(name, "-"), `[`, 3), "D", ""))) %>% 
+  mutate(day_a = as.numeric(as.factor(day_a) %>% forcats::fct_recode("2" = "3", "3" = "5", "4" = "7", "5" = "8", "6" = "10", "7" = "13", "8" = "14", "9" = "14", "10" = "15")),
+         day_b = as.numeric(as.factor(day_b) %>% forcats::fct_recode("2" = "3", "3" = "5", "4" = "7", "5" = "8", "6" = "10", "7" = "12", "8" = "13", "9" = "14", "10" = "15")),
+         diff = abs(day_a - day_b)) %>% 
+  filter(diff == 1) %>% 
+  mutate(day_b = as.factor(day_b) %>% forcats::fct_recode("D03" = "2", "D05" = "3","D07" = "4",  "D08" = "5", "D10" = "6", "D13" = "7", "D14" = "8", "D15" = "10", "D12" = "7")) %>% 
+  ggplot(aes(x=day_b, y=value)) +
+    geom_boxplot() +
+  theme_bw() +
+  labs(x="Time points",
+       y="Bray-Curtis distance")
+
+```
+
+### basic NMDS plot
+IN WORK!!
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+
+beta_custom_norm_NMDS_elli_w(ps.f, C="Group", G="Day")
+
+
+```
+
+
+## Splitting the dataset
+
+Разделим датасет на две группы \
+
+1-я - в более чем 10% образцов должно быть хотя бы 10 ридов - эта группа пойдет в анализ далее
+
+```{r, fig.height=8, fig.width=10, warning=FALSE}
+
+ps.inall <- phyloseq::filter_taxa(ps.f, function(x) sum(x > 10) > (0.1*length(x)), TRUE)
+amp.inall <- phyloseq_to_ampvis2(ps.inall)
+amp_heatmap(amp.inall,
+            tax_show = 40,
+            group_by = "Day",
+            tax_aggregate = "OTU",
+            tax_add = "Genus",
+            normalise=FALSE,
+            showRemainingTaxa = TRUE)
+
+```
+
+
+Вторая - оставшиеся, но более 100 ридов по всем образцам(далее - вылетающие мажоры(ВМ)) \
+Остальные филотипы выкидываем из анализа
+
+```{r,fig.height=8, fig.width=10, warning=FALSE}
+
+ps.exl  <- phyloseq::filter_taxa(ps.f, function(x) sum(x > 10) < (0.1*length(x)), TRUE)
+ps.exl  <- prune_taxa(taxa_sums(ps.exl) > 100, ps.exl)
+amp.exl <- phyloseq_to_ampvis2(ps.exl)
+amp_heatmap(amp.exl,
+            tax_show = 40,
+            group_by = "Day",
+            tax_aggregate = "OTU",
+            tax_add = "Genus",
+            normalise=FALSE,
+            showRemainingTaxa = TRUE)
+
+```
+
+
+То же, но c относительной представленностью.
+
+```{r,fig.height=8, fig.width=10, warning=FALSE}
+
+ps.per  <-  phyloseq::transform_sample_counts(ps.f, function(x) x / sum(x) * 100) 
+ps.exl.taxa <- taxa_names(ps.exl)
+ps.per.exl <- prune_taxa(ps.exl.taxa, ps.per)
+amp.exl.r <- phyloseq_to_ampvis2(ps.per.exl)
+
+amp_heatmap(amp.exl.r, tax_show = 60, 
+      group_by = "Day", 
+      tax_aggregate = "OTU",
+      tax_add = "Genus", 
+      round =  2, 
+      normalise=FALSE, 
+      showRemainingTaxa = TRUE)
+
+amp_heatmap(amp.exl.r, tax_show = 60, 
+      group_by = "Day", 
+      tax_aggregate = "OTU",
+      tax_add = "Genus", 
+      round =  2, 
+      normalise=FALSE, )
+
+```
+ВМ объединенные по родам. Относительная представленность.
+
+```{r,fig.height=8, fig.width=10, warning=FALSE}
+
+amp_heatmap(amp.exl.r,
+            tax_show = 30, 
+            group_by = "Day", 
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            tax_class = "Proteobacteria",
+            round =  2,
+            normalise=FALSE, 
+            showRemainingTaxa = TRUE)
+
+
+```
+
+Если посмотреть, если как распределяются ВМ по дням - похоже распределение ВМ связано не только с особенностью отдельных мешочков, но и с чисто техническими особенностями - вылетающие значения вылетают в основном не с биологическими повторностями, а с техническими(красная линия - выбрана визуально)
+
+```{r}
+
+p_box <- phyloseq::sample_sums(ps.per.exl) %>% 
+  as.data.frame(col.names = "values") %>% 
+  setNames(., nm = "values") %>% 
+  rownames_to_column("samples") %>% 
+  mutate(Day = sapply(strsplit(samples, "-"), `[`, 3)) %>% 
+  ggplot(aes(x=Day, y=values, color=Day, fill = Day)) +
+  geom_boxplot(aes(color=Day, fill = Day)) +
+  geom_point(color = "black", position = position_dodge(width=0.2)) +
+  geom_hline(yintercept = 10, colour = "red") +
+  theme_bw() +
+  theme(legend.position = "none")
+     
+p_box <- p_box + viridis::scale_color_viridis(option = "H", discrete = TRUE, direction=1, begin=0.1, end = 0.9, alpha = 0.5)
+
+p_box + viridis::scale_fill_viridis(option = "H", discrete = TRUE, direction=1, begin=0.1, end = 0.9, alpha = 0.3)
+               
+```
+
+## WGCNA
+### clr
+
+после clr нормализации / 
+выглядит отвратительно попробуем нормализацию vst из DESeq2
+
+
+```{r, message=FALSE}
+
+otu.inall <- as.data.frame(ps.inall@otu_table@.Data) 
+ps.inall.clr <- ps.inall
+otu_table(ps.inall.clr) <- phyloseq::otu_table(compositions::clr(otu.inall), taxa_are_rows = FALSE)
+data <- ps.inall.clr@otu_table@.Data %>% 
+  as.data.frame()
+rownames(data) <- as.character(ps.inall.clr@sam_data$Description)
+powers <-  c(c(1:10), seq(from = 12, to=30, by=1))
+sft <-  pickSoftThreshold(data, powerVector = powers, verbose = 5, networkType = "signed")
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2], xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n", main = paste("Scale independence"))
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2], labels=powers,cex=0.9,col="red")
+abline(h=0.9,col="salmon")
+
+```
+
+
+### vst
+
+после vst нормализации
+
+```{r, message=FALSE}
+
+ps.varstab <- ps_vst(ps.inall, "Day")
+
+data2 <- ps.varstab@otu_table@.Data %>% 
+  as.data.frame()
+
+rownames(data2) <- as.character(ps.varstab@sam_data$Description)
+powers <-  c(seq(from = 1, to=10, by=0.5), seq(from = 11, to=20, by=1))
+sft2 <-  pickSoftThreshold(data2, powerVector = powers, verbose = 5, networkType = "signed hybrid")
+plot(sft2$fitIndices[,1], -sign(sft2$fitIndices[,3])*sft2$fitIndices[,2], xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n", main = paste("Scale independence"))
+text(sft2$fitIndices[,1], -sign(sft2$fitIndices[,3])*sft2$fitIndices[,2], labels=powers,cex=0.9,col="red")
+abline(h=0.9,col="salmon")
+
+```
+
+```{r, warning=FALSE, message=FALSE}
+
+# WGCNA, as old and not supported
+detachAllPackages()
+library(WGCNA)
+
+
+net3 <- WGCNA::blockwiseModules(data2,
+                          power=5.5,
+                          TOMType="signed",
+                          networkType="signed hybrid",
+                          nThreads=0)
+
+
+mergedColors2 <-  WGCNA::labels2colors(net3$colors, colorSeq = c("salmon", "darkgreen", "cyan", "red", "blue", "plum"))
+
+plotDendroAndColors(
+  net3$dendrograms[[1]],
+  mergedColors2[net3$blockGenes[[1]]],
+  "Module colors",
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05)
+
+
+```
+
+#### Импорт 2
+
+```{r, warning=FALSE, message=FALSE}
+
+library(phyloseq)
+library(tidyverse)
+library(ggpubr)
+library(ampvis2)
+library(heatmaply)
+library(WGCNA)
+library(phyloseq)
+library(ggtree)
+library(tidyverse)
+library(KneeArrower)
+
+```
+
+
+```{r, message=FALSE, fig.height=6, fig.width=8}
+
+modules_of_interest = mergedColors2 %>% 
+  unique()
+
+module_df <- data.frame(
+  asv = names(net3$colors),
+  colors = mergedColors2
+)
+
+# module_df[module_df == "yellow"] <- "salmon"
+
+submod <-  module_df %>%
+  subset(colors %in% modules_of_interest)
+
+row.names(module_df) = module_df$asv
+
+subexpr = as.data.frame(t(data2))[submod$asv,]
+
+submod_df <- data.frame(subexpr) %>%
+  mutate(
+    asv = row.names(.)
+  ) %>%
+  pivot_longer(-asv) %>%
+  mutate(
+    module = module_df[asv,]$colors
+  )
+
+submod_df <- submod_df %>% 
+  mutate(name = gsub("\\_.*","",submod_df$name)) %>% 
+  group_by(name, asv) %>% 
+  summarise(value = mean(value), asv = asv, module = module) %>% 
+  relocate(c(asv, name, value, module)) %>% 
+  ungroup() %>% 
+  mutate(module = as.factor(module))
+
+p <- submod_df %>% 
+  ggplot(., aes(x=name, y=value, group=asv)) +
+  geom_line(aes(color = module),
+            alpha = 0.2) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90),
+    legend.position = "none") +
+  facet_grid(rows = vars(module)) +
+  labs(x = "treatment",
+       y = "normalized expression")
+
+p + scale_color_manual(values = levels(submod_df$module))
+
+```
+
+
+#### ordination
+
+UNIFRAC - колбаска сужается
+
+```{r, message=FALSE, warning=FALSE}
+
+ps.inall.col <- ps.inall
+df <- module_df %>% 
+  rename("id" = "asv")
+df <- df %>% 
+  dplyr::select(-"id") %>% 
+  mutate(colors = as.factor(colors))
+taxa <- as.data.frame(ps.inall@tax_table@.Data)
+tx <- cbind(taxa, df)
+tx$colors <- factor(tx$colors, levels = c("salmon", "darkgreen", "cyan", "red", "blue", "plum"))
+tax_table(ps.inall.col) <- tax_table(as.matrix(tx))
+ord <- ordinate(ps.inall.col, "NMDS", "unifrac")
+plot_ordination(ps.inall.col, ord, type = "species", color = "colors") + 
+  scale_color_manual(values =  c("salmon", "darkgreen", "cyan", "red", "blue", "plum")) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+
+```
+
+Bray - колбаска равномерна \
+Поздние стадии слева - при этом ранние кластеры накладываются, поздние разделены
+Что влияет на ось2? Явно есть какой-то паттерн.
+
+```{r}
+
+ord <- ordinate(ps.inall.col, "NMDS", "bray")
+plot_ordination(ps.inall.col, ord, type = "species", color = "colors") + 
+  scale_color_manual(values =  c("salmon", "darkgreen", "cyan", "red", "blue", "plum")) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+```
+
+
+#### visualisation
+Далее идут одинаковые картинки по всем группам.
+
+```{r, warning=FALSE, message=FALSE, fig.height=9.5, fig.width=12.5, results='asis'}
+
+l_vst <- color_filt(ps.inall, submod_df)
+l_vst
+
+```
+
+mpd по стадиям
+
+```{r, warning=FALSE}
+
+physeq_merged <- merge_samples(ps.f, "Group", fun=sum)
+ps.f@sam_data
+
+# picante::mpd(l_vst$blue$ps@otu_table@.Data, cophenetic(l_vst$blue$ps@phy_tree)) %>% 
+#   mean(na.rm = TRUE)
+# 
+# picante::mpd(l_vst$salmon$ps@otu_table@.Data, cophenetic(l_vst$salmon$ps@phy_tree)) %>% 
+#   mean(na.rm = TRUE)
+
+picante::ses.mpd(physeq_merged@otu_table@.Data, cophenetic(physeq_merged@phy_tree)) 
+
+
+```
+
+
+
+## Add a metadata 
+
+
+```{r}
+
+list.files("meta/")
+
+```
+
+period_legend - соответствие номеров мешочков в 16S с днями, думаю лучше заменить везде обозначения 1, 3 и тд на дни
+cell_resp - данные по дыханию, по ним какую-нибудь простую статистику. Да, повторностей для эксперимента и контроля разное количество
+cell_realtime - это циклы выхода целлюлаз по реалтайму, я их нормировала по 16S, есть в этой же таблице. Что с ними делать особо не знаю, вроде вообще решили выкинуть
+
+```{r}
+
+realtime.data <- readxl::read_excel("meta/cell_realtime_stat.xlsx")
+period.data <- readxl::read_excel("meta/period_legend.xlsx")
+resp.data <- readxl::read_excel("meta/cell_resp_ch_stat.xlsx")
+realtime.data
+
+```
+
+### Realtime data
+
+```{r}
+
+impute.mean <- function(x) replace(x, is.na(x), mean(x, na.rm = TRUE))
+
+realtime_data <- realtime.data %>% 
+  mutate(CELL_08643 = as.numeric(CELL_08643)) %>% 
+  group_by(day) %>%
+  mutate(nice_cell = impute.mean(CELL_08643)) %>% 
+  mutate(day = as.factor(day))
+
+realtime_zjena <- readxl::read_excel("cellulases_gene_expression(1).xlsx")
+geom_mean <-function(x){exp(mean(log(x)))}
+
+realtime_zjena_geom <- realtime_zjena %>% 
+  mutate(repeats = paste0(realtime_zjena$week, "-", rep(1:3, 3, each=3))) %>% 
+  relocate(repeats, 1) %>% 
+  group_by(repeats) %>% 
+  summarise_if(is.numeric, geom_mean) %>% 
+  mutate(week = as.factor(week)) %>% 
+  arrange(week)
+
+```
+
+
+UPGMA целлюлаз(дистанция - брей). \
+Не очень понимаю, что это значит. В зависимости от дистанции получаются совсем разные кластеризации.
+
+```{r}
+
+realtime_matrix <- realtime_zjena_geom %>% 
+  column_to_rownames("repeats") %>% 
+  select_if(is.numeric) %>% 
+  as.matrix()
+
+hcl <- hclust(vegan::vegdist(t(realtime_matrix), method="bray"), "average")
+plot(hcl)
+
+```
+
+А вот - евклидова дистанция. \
+Ничего общего с предыдущей картинкой
+
+```{r}
+
+hcl <- hclust(vegan::vegdist(t(realtime_matrix), method="euclidian"), "average")
+plot(hcl)
+
+```
+
+
+Корплот целлюлаз. \
+Только корреляции
+
+
+```{r, fig.width=9, fig.height=9}
+
+m = cor(realtime_matrix)
+corrplot::corrplot(m)
+
+```
+
+
+
+Только достоверные корреляции \
+В общем - кластеры есть - но корреляцие недостоверные(за некоторыми исключениями)
+
+```{r, fig.width=8, fig.height=8}
+
+cor_test_mat <- psych::corr.test(realtime_matrix)$p
+corrplot::corrplot(m, p.mat = cor_test_mat, method = 'circle', type = 'lower', insig='blank',
+         order = 'AOE', diag = FALSE)$corrPos -> p1
+# text(p1$x, p1$y, round(p1$corr, 2))
+
+```
+
+То же, но матрица уже прологарифмирована.
+
+```{r, fig.width=8, fig.height=8}
+
+cor_test_mat <- psych::corr.test(log(realtime_matrix))
+corrplot::corrplot(cor_test_mat$r, p.mat = cor_test_mat$p, method = 'circle', type = 'lower', insig='blank',
+         order = 'AOE', diag = FALSE)$corrPos -> p1
+# text(p1$x, p1$y, round(p1$corr, 2))
+
+```
+
+add phylogenic tree (mafft - iqtree(ML))
+
+```{r,fig.width=8, fig.height=8, message=FALSE}
+
+realtime_tree <- ape::read.tree("al_chz.fasta.contree")
+plot(realtime_tree)
+
+
+```
+
+
+
+```{r}
+
+library(tidyverse)
+
+realtime_data %>% 
+  select(c("day", "id", "contr_16S", "CELL_172283")) %>% 
+  mutate(bio_repl = gsub("-[1-3]$", "", id)) %>% 
+  group_by(bio_repl, day) %>% 
+  summarise(contr_tmean = mean(contr_16S),
+            data_tmean = mean(CELL_172283)) %>% 
+  mutate(dCt = data_tmean - contr_tmean)
+
+```
+
+
+
+```{r}
+
+resp_data <- resp.data %>% 
+  group_by(day) %>%
+  mutate(control = impute.mean(control)) %>% 
+  mutate(straw = impute.mean(straw)) 
+
+resp_data
+
+```
+
+### Knee plot
+
+Дыхание - median(straw)/median(control)
+
+Mожно использовать сторонний пакет(KneeArrower) что понять в каком месте knee_plot происходит перелом. Для элиминации повторностей возьмем медиану. \ 
+Я хз как этот пакет работает(ищет производную, но как сглаживает - хз, там матан), но он говорит что перелом происходит скорее на 60-80 днях.
+
+(я исправил ошибки - стало ближе к твоим данным)
+
+https://github.com/agentlans/KneeArrower - вот здесь можно почитать про матан
+
+```{r}
+
+# resp_data %>% 
+#   filter(!day == 0) %>% 
+#   group_by(day) %>% 
+#   summarise(median_control = median(control),
+#             median_straw = median(straw)) %>% 
+#   mutate(rel = median_straw/median_control) %>% 
+#   ggplot() +
+#   geom_point(aes(x = day, y = rel))
+
+resp_median <- resp_data %>% 
+  filter(!day == 0) %>% 
+  group_by(day) %>% 
+  summarise(median_control = median(control),
+            median_straw = median(straw)) %>% 
+  mutate(rel = median_straw/median_control)
+
+
+thresholds <- c(0.25, 0.5, 0.75, 1)
+
+# Find cutoff points at each threshold
+cutoff.points <- lapply(thresholds, function(i) {
+  findCutoff(resp_median$day, resp_median$rel, method="first", i)
+})
+
+x.coord <- sapply(cutoff.points, function(p) p$x)
+y.coord <- sapply(cutoff.points, function(p) p$y)
+
+# Plot the cutoff points on the scatterplot
+plot(resp_median$day, resp_median$rel, pch=20, col="gray")
+points(x.coord, y.coord, col="red", pch=20)
+text(x.coord, y.coord, labels=thresholds, pos=4, col="red")
+
+```
+
+
+```{r}
+
+period_data <- period.data %>%
+  mutate(bag_id = as.factor(bag_id))
+
+period_data
+
+```
+
+
+### альфа/дыхание
+
+Ну я вот не очень понимаю что делать дальше - привязать кластеры к этой картинке?
+
+```{r}
+
+resp_median_bags <- resp_median %>% 
+  left_join(period.data, by="day") %>% 
+  mutate(bag_id = as.factor(bag_id))
+
+ps.f.r <- rarefy_even_depth(ps.f)
+
+estimate_richness(ps.f.r) %>% 
+  rownames_to_column("ID") %>% 
+  mutate(bag_id = as.factor(
+    as.numeric(
+      gsub("\\..+","",
+           gsub("straw\\.16s\\.D","", ID)
+           )
+      )
+    )
+    ) %>% 
+  group_by(bag_id) %>% 
+  summarise(Observed = mean(Observed),
+            Shannon = mean(Shannon),
+            InvSimpson = mean(InvSimpson)) %>% 
+  left_join(period_data, by="bag_id") %>% 
+  left_join(resp_median_bags, by="bag_id") %>% 
+  mutate(
+    Observed_scaled = scale(Observed),
+    Shannon_scaled = scale(Shannon),
+    InvSimpson_scaled = scale(InvSimpson),
+    Respiration_scaled = scale(rel)
+  ) %>% 
+  select(c(bag_id, Observed_scaled, Shannon_scaled, InvSimpson_scaled, Respiration_scaled)) %>% 
+  pivot_longer(c("Observed_scaled", "Shannon_scaled", "InvSimpson_scaled", "Respiration_scaled")) %>% 
+  ggplot(aes(y = value, x = bag_id, group = name)) +
+  geom_line(aes(color = name),
+            alpha = 0.8) +
+  theme_bw()
+
+```
+
+Корреляция -ртрицательная слабенькая, не особо достоверная и только Пирсона(которая работает для нормального распределения(у нас хроносерия, надо спирмана по хорошему))
+
+```{r}
+
+alpha_resp <- phyloseq::estimate_richness(ps.f.r) %>% 
+  rownames_to_column("ID") %>% 
+  mutate(bag_id = as.factor(
+    as.numeric(
+      gsub("\\..+","",
+           gsub("straw\\.16s\\.D","", ID)
+           )
+      )
+    )
+    ) %>% 
+  group_by(bag_id) %>% 
+  summarise(Observed = mean(Observed),
+            Shannon = mean(Shannon),
+            InvSimpson = mean(InvSimpson)) %>% 
+  left_join(period_data, by="bag_id") %>% 
+  left_join(resp_median_bags, by="bag_id") %>% 
+  mutate(
+    Observed_scaled = scale(Observed),
+    Shannon_scaled = scale(Shannon),
+    InvSimpson_scaled = scale(InvSimpson),
+    Respiration_scaled = scale(rel)
+  ) %>% 
+  select(c(bag_id, Observed_scaled, Shannon_scaled, InvSimpson_scaled, Respiration_scaled))
+
+cor.test(alpha_resp$Observed_scaled, alpha_resp$Respiration_scaled, method = "spearman")
+cor.test(alpha_resp$Shannon_scaled, alpha_resp$Respiration_scaled, method = "spearman")
+cor.test(alpha_resp$InvSimpson_scaled, alpha_resp$Respiration_scaled, method = "spearman")
+
+cor.test(alpha_resp$Observed_scaled, alpha_resp$Respiration_scaled, method = "pearson")
+cor.test(alpha_resp$Shannon_scaled, alpha_resp$Respiration_scaled, method = "pearson")
+cor.test(alpha_resp$InvSimpson_scaled, alpha_resp$Respiration_scaled, method = "pearson")
+
+```
+
+## Export all phyloseq object in one table
+
+В табличке есть колонка cluster - "exl" в ней обозначает что это та часть датасета которая не пошла в WGCNA - мажоры в единичных семплах.
+
+```{r, results="hide"}
+
+ps.m <- phyloseq::psmelt(ps.f)
+
+ps.m <- ps.m %>% 
+  mutate_if(is.character, as.factor) 
+
+ps.data.out <- ps.m %>%
+  select(-Group) %>% 
+  pivot_wider(names_from = c(Day, Description, Sample), values_from = Abundance, values_fill = 0) 
+
+#create empty dataframe with columnnames
+external_empty_dataframe <- data.frame(OTU=factor(), cluster=factor(), stringsAsFactors = FALSE)
+
+for (i in names(l_vst)) {
+  a <- taxa_names(l_vst[[i]][["ps"]])
+  b <- rep(i, length(a))
+  d <- data.frame(OTU = as.factor(a),
+                  cluster = as.factor(b))
+  external_empty_dataframe <- rbind(external_empty_dataframe, d)
+}
+
+clusters.otu.df <- external_empty_dataframe
+# add exl taxa -- taxa "exl"
+d <- data.frame(OTU = as.factor(ps.exl.taxa),
+                cluster = as.factor(rep("exl", length(ps.exl.taxa))))
+
+clusters.otu.df <- rbind(clusters.otu.df, d)
+ps.data.out.exl <- left_join(clusters.otu.df, ps.data.out, by="OTU")
+# write.table(ps.data.out.exl, file = "ps.data.out.tsv", sep = "\t")
+ps.data.out.exl
+
+```
+
+
+### Несколько картинок по динамике предсталенности отдельных фил
+Bdellovibrionota - хищники, индикатор развитого сообщества
+
+```{r}
+
+ps.m %>% 
+  filter(Phylum == "Bdellovibrionota") %>% 
+  group_by(Description, Day) %>% 
+  summarise(Bs = sum(Abundance)) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = Day, y = Bs)) +
+  theme_bw()
+  
+```
+
+
+Myxococcota - вроде бы тоже, но как нам известно могут быть целлулотитиками
+
+```{r}
+
+ps.m %>% 
+  filter(Phylum == "Myxococcota") %>% 
+  group_by(Description, Day) %>% 
+  summarise(Bs = sum(Abundance)) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = Day, y = Bs)) +
+  theme_bw()
+
+```
+
+
+Археи появляются тоже на поздних стадиях - вообще я бы хотел бы опять развить тему важности азотного метаболизма на поздних стадиях разложения. \
+Оч хочется метагеном, но не этот. \
+Кроме того хочется отметить, что эти минорные группы возникают на D12
+
+```{r}
+
+ps.m %>% 
+  filter(Phylum == "Crenarchaeota") %>% 
+  group_by(Description, Day) %>% 
+  summarise(Bs = sum(Abundance)) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = Day, y = Bs)) +
+  theme_bw()
+
+
+```
+
+Gammaproteobacteria - они треть кластера blue
+
+```{r}
+
+ps.m %>% 
+  filter(Class == "Gammaproteobacteria") %>% 
+  group_by(Description, Day) %>% 
+  summarise(Bs = sum(Abundance)) %>% 
+  ggplot() +
+  geom_boxplot(aes(x = Day, y = Bs)) +
+  theme_bw()
+
+```
+
+### Боксплоты по филам 
+
+Все филы - представлененось логорифмирована по основанию 2 \
+Отдельные точки - суммы абсолютных значений ридов по дням \
+Логорифмированы уже суммы, а не отдельные филотипы
+
+```{r, fig.width=12, fig.height=9}
+
+#select only major phylums
+top_phylum <- ps.m %>% 
+  count(Phylum) %>% 
+  arrange(desc(n)) %>% 
+  top_n(10) %>% 
+  pull(Phylum)
+
+ps.m %>% 
+  filter(Phylum %in% top_phylum) %>% 
+  mutate(
+    Phylum = as.character(Phylum),
+    Class = as.character(Class),
+    phylum = ifelse(Phylum == "Proteobacteria", Class, Phylum)
+  ) %>% 
+  group_by(Description, Day, phylum) %>% 
+  filter(!is.na(phylum)) %>% 
+  summarise(Bs = log2(sum(Abundance))) %>% 
+  ggplot(aes(x = Day, y = Bs)) +
+  geom_boxplot(fill="#4DBBD5B2", alpha=0.4) +
+  theme_bw() +
+  facet_wrap(~ phylum)
+
+```
+

@@ -1,9 +1,4 @@
----
-title: "straw_2"
-author: "GrGladkov"
-date: "4/14/2022"
-output: html_document
----
+
 ---
 title: "cellulo_com"
 author: "GrGladkov"
@@ -139,8 +134,7 @@ write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
 
 ```{r}
 
-track[0,]
-  names_to = "type",
+read_csv2("otu_ta")
   
 ```
 
@@ -172,20 +166,47 @@ list.files()
 
 ```{r}
 
-list.files()
+map <- read_tsv("map.cel.16.csv")
+map <- column_to_rownames(map, "ID")
+map
 
-```
+#read taxa file
+taxa <- read.csv("taxa.txt" , header=TRUE, sep="\t")
+taxa <- column_to_rownames(taxa, 'X')
+taxa <- as.matrix(taxa)
 
 
+#read otu file
+filt.otu <- read.csv("otu_table.txt" , header=TRUE, sep="\t")
+colnames(filt.otu)[1] <- "ID"
+filt.otu <- column_to_rownames(filt.otu, "ID")
 
-```{r}
+st.brief.t.df %>% 
+  head()
+
+naturalsort::naturalsort(colnames(filt.otu))
+
+filt.otu <- filt.otu[,naturalsort::naturalsort(colnames(filt.otu))] 
+
+colnames(filt.otu)
+
+names_amazing <- colnames(filt.otu) %>% 
+  str_split("Abakumov.") %>% 
+  sapply(function(x) paste0("y", x[2]))
 
 map <- read_delim("yam2_map.csv") %>% 
-  mutate(Arina_ID = names_amazing)
-  
+  mutate(Arina_ID = names_amazing) %>% 
+  column_to_rownames("Arina_ID")
 
+colnames(filt.otu) <- names_amazing
+ps <- phyloseq(otu_table(t(filt.otu), taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa))
+
+as.data.frame(filt.otu)
 map
-  
+
+ps
 
 ```
 
@@ -209,8 +230,8 @@ names_amazing
 
 colnames(otus_d) <- names_amazing
 
-
-
+tree <- read_tree(treefile="tree")
+ps.f2@phy_tree <- tree
 
 ```
 
@@ -257,6 +278,7 @@ ps.f <- ps_object
 ```{r}
 
 ps.f
+saveRDS(ps.f, "ps.f")
 
 ```
 
@@ -286,15 +308,14 @@ plot_rich_reads_samlenames_lm(ps.f)
 ps.f2 <- subset_samples(ps.f, sample_names(ps.f) != 'y8')
 
 plot_rich_reads_samlenames_lm(ps.f2)
-# ps.f@sam_data$Site
 
+plot_rich_reads_samlenames_lm(ps)
 ```
 
 
 ```{r}
 
 ps.f2 <- subset_samples(ps.f, sample_names(ps.f) != 'straw-16s-D07-1')
-
 
 ```
 
@@ -337,12 +358,12 @@ beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color=
   return(p)
 }
 
-beta_custom_norm_NMDS_elli_w(ps.ya, Color="Site", Group="Repeat")
+beta_custom_norm_NMDS_elli_w(ps.ym, Color="Site", Group="Repeat")
 
 ```
 
 
-```{r, fig.width=9, fig.height=7}
+```{r, fig.width=6, fig.height=5}
 
 
 ps.ym <- prune_samples(sample_data(ps.f2)$Region %in% c("YAMAO"), ps.f2)
@@ -358,7 +379,7 @@ p.za
 p.wt
 ps.f2@sam_data$Region
 
-beta_custom_norm_NMDS_elli_w(ps.ym, Color="Site", Group="Repeat")
+beta_custom_norm_NMDS_elli_w(ps.ya, Color="Site", Group="Repeat")
 
 ```
 
@@ -390,16 +411,751 @@ phyloseq_to_amp <- function(ps){
 amp.ym <- phyloseq_to_amp(ps.ya)
 amp.ym
 
-amp_heatmap(amp.ym, tax_show = 15, group_by = "Repeat",tax_aggregate = "Phylum") +
+amp_heatmap(amp.ym, tax_show = 15, group_by = "Repeat",tax_aggregate = "Phylum", tax_class = "Proteobacteria") +
   theme_bw() + 
   theme(text = element_text(size=15), legend.position = "none") + 
   theme(axis.text.x=element_text(angle=45,hjust=1))
 
-amp_venn(amp.ym, group_by = )
+amp_venn(amp.ym, group_by = "Feature", cut_a = 0, cut_f = 0.001)
 
-amp.ya@
+amp.ym
 
 ```
+```{r}
+
+
+ancom_da_glob_2 <- ancombc(phyloseq = ps.ym,
+                         formula = "Feature",
+                         p_adj_method = "fdr",
+                         zero_cut = 0.90,
+                         lib_cut = 1000,
+                         group = "Фон",
+                         struc_zero = TRUE,
+                         neg_lb = TRUE,
+                         tol = 1e-5,
+                         max_iter = 100,
+                         conserve = TRUE,
+                         alpha = 0.05,
+                         global = TRUE)
+
+
+rt <- ancom_da_glob_2$res$diff_abn %>% 
+  filter(ФонTRUE == TRUE) %>% 
+  rownames()
+
+ancom_da_glob_2$res$beta %>% 
+  rownames_to_column("ID") %>% 
+  left_join(taxa) %>% 
+  filter(ID %in% rt) %>% 
+  arrange(desc(ФонTRUE))
+
+ancom_da_glob_2
+
+```
+
+```{r}
+
+ps.ya@sam_data
+
+ps.rel  <-  phyloseq::transform_sample_counts(ps.ya, function(x) x / sum(x))
+
+ps.inall <- phyloseq::filter_taxa(ps.ya, function(x) sum(x > 10) > (0.1*length(x)), TRUE)
+ps.inall
+
+
+ps.exl  <- phyloseq::filter_taxa(ps.ya, function(x) sum(x > 10) < (0.1*length(x)), TRUE)
+ps.exl  <- prune_taxa(taxa_sums(ps.exl) > 100, ps.exl)
+
+ps.ya@sam_data
+
+```
+
+## functions
+
+```{r}
+
+#phyloseq object to ampvis2 object
+#https://gist.github.com/KasperSkytte/8d0ca4206a66be7ff6d76fc4ab8e66c6
+
+phyloseq_to_ampvis2 <- function(physeq) {
+  #check object for class
+  if(!any(class(physeq) %in% "phyloseq"))
+    stop("physeq object must be of class \"phyloseq\"", call. = FALSE)
+  
+  #ampvis2 requires taxonomy and abundance table, phyloseq checks for the latter
+  if(is.null(physeq@tax_table))
+    stop("No taxonomy found in the phyloseq object and is required for ampvis2", call. = FALSE)
+  
+  #OTUs must be in rows, not columns
+  if(phyloseq::taxa_are_rows(physeq))
+    abund <- as.data.frame(phyloseq::otu_table(physeq)@.Data)
+  else
+    abund <- as.data.frame(t(phyloseq::otu_table(physeq)@.Data))
+  
+  #tax_table is assumed to have OTUs in rows too
+  tax <- phyloseq::tax_table(physeq)@.Data
+  
+  #merge by rownames (OTUs)
+  otutable <- merge(
+    abund,
+    tax,
+    by = 0,
+    all.x = TRUE,
+    all.y = FALSE,
+    sort = FALSE
+  )
+  colnames(otutable)[1] <- "OTU"
+  
+  #extract sample_data (metadata)
+  if(!is.null(physeq@sam_data)) {
+    metadata <- data.frame(
+      phyloseq::sample_data(physeq),
+      row.names = phyloseq::sample_names(physeq), 
+      stringsAsFactors = FALSE, 
+      check.names = FALSE
+    )
+    
+    #check if any columns match exactly with rownames
+    #if none matched assume row names are sample identifiers
+    samplesCol <- unlist(lapply(metadata, function(x) {
+      identical(x, rownames(metadata))}))
+    
+    if(any(samplesCol)) {
+      #error if a column matched and it's not the first
+      if(!samplesCol[[1]])
+        stop("Sample ID's must be in the first column in the sample metadata, please reorder", call. = FALSE)
+    } else {
+      #assume rownames are sample identifiers, merge at the end with name "SampleID"
+      if(any(colnames(metadata) %in% "SampleID"))
+        stop("A column in the sample metadata is already named \"SampleID\" but does not seem to contain sample ID's", call. = FALSE)
+      metadata$SampleID <- rownames(metadata)
+      
+      #reorder columns so SampleID is the first
+      metadata <- metadata[, c(which(colnames(metadata) %in% "SampleID"), 1:(ncol(metadata)-1L)), drop = FALSE]
+    }
+  } else
+    metadata <- NULL
+  
+  #extract phylogenetic tree, assumed to be of class "phylo"
+  if(!is.null(physeq@phy_tree)) {
+    tree <- phyloseq::phy_tree(physeq)
+  } else
+    tree <- NULL
+  
+  #extract OTU DNA sequences, assumed to be of class "XStringSet"
+  if(!is.null(physeq@refseq)) {
+    #convert XStringSet to DNAbin using a temporary file (easiest)
+    fastaTempFile <- tempfile(pattern = "ampvis2_", fileext = ".fa")
+    Biostrings::writeXStringSet(physeq@refseq, filepath = fastaTempFile)
+  } else
+    fastaTempFile <- NULL
+  
+  #load as normally with amp_load
+  ampvis2::amp_load(
+    otutable = otutable,
+    metadata = metadata,
+    tree = tree,
+    fasta = fastaTempFile
+  )
+}
+
+#variance stabilisation from DESeq2
+
+ps_vst <- function(ps, factor){
+  
+
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))              
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  # pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+#WGCNA visualisation
+#result - list class object with attributes:
+# ps - phyloseq object
+# amp - ampwis2 object
+# heat - heatmap with absalute read numbers
+# heat_rel - hetmap with relative abundances
+# tree - phylogenetic tree with taxonomy
+
+color_filt <- function(ps, df){
+  
+      library(tidyverse)
+      library(reshape2)
+      library(gridExtra)
+
+  
+  l = list()
+  for (i in levels(df$module)){
+    message(i)
+    color_name <-  df %>% 
+      filter(module == i) %>% 
+      pull(asv) %>% 
+      unique()
+    ps.col <- prune_taxa(color_name, ps)
+    amp.col <- phyloseq_to_ampvis2(ps.col)
+    heat <- amp_heatmap(amp.col, tax_show = 60, 
+              group_by = "Day", 
+              tax_aggregate = "OTU",
+              tax_add = "Genus", 
+              normalise=FALSE, 
+              showRemainingTaxa = TRUE)
+    
+    ps.rel  <-  phyloseq::transform_sample_counts(ps.col, function(x) x / sum(x) * 100)
+    amp.r <- phyloseq_to_ampvis2(ps.rel)
+    heat.rel <- amp_heatmap(amp.r, tax_show = 60, 
+          group_by = "Day", 
+          tax_aggregate = "OTU",
+          tax_add = "Genus", 
+          normalise=FALSE, 
+          showRemainingTaxa = TRUE)
+    
+    tree <- ps.col@phy_tree
+    taxa <- as.data.frame(ps.col@tax_table@.Data)
+    p1 <- ggtree(tree) + 
+              geom_tiplab(size=2, align=TRUE, linesize=.5) +
+              theme_tree2()
+    
+    taxa[taxa == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Allorhizobium"
+    taxa[taxa == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
+  
+    tx <- taxa %>% 
+      rownames_to_column("id") %>% 
+      mutate(id = factor(id, levels = rev(get_taxa_name(p1)))) %>% 
+      dplyr::select(-c(Kingdom, Species, Order)) %>% 
+      melt(id.var = 'id')
+
+    p2 <- ggplot(tx, aes(variable, id)) + 
+      geom_tile(aes(fill = value), alpha = 0.4) +
+      geom_text(aes(label = value), size = 3) +
+      theme_bw() + 
+      theme(legend.position = "none",
+             axis.ticks.x=element_blank(),
+             axis.text.y=element_blank(),
+             axis.ticks.y=element_blank(),
+             axis.title.x = element_blank(),
+            axis.title.y = element_blank()) 
+
+    p <- ggpubr::ggarrange(p1, p2, widths = c(0.9, 1))
+    l[[i]] <- list("ps" = ps.col, 
+                   "amp" = amp.col,
+                   "heat" = heat,
+                   "heat_rel" = heat.rel,
+                   "tree" = p,
+                   "taxa" = knitr::kable(taxa))
+                    
+  }
+  return(l)
+}
+
+detachAllPackages <- function() {
+
+  basic.packages <- c("package:stats","package:graphics","package:grDevices","package:utils","package:datasets","package:methods","package:base")
+
+  package.list <- search()[ifelse(unlist(gregexpr("package:",search()))==1,TRUE,FALSE)]
+
+  package.list <- setdiff(package.list,basic.packages)
+
+  if (length(package.list)>0)  for (package in package.list) detach(package, character.only=TRUE, force = TRUE)
+
+}
+
+plot_alpha_w_toc <- function(ps, group, metric) {
+  
+  require(phyloseq)
+  require(ggplot2)
+  
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+  stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+    rstatix::tukey_hsd()
+  y <-  seq(max(er[[metric]]), length=length(stat.test$p.adj), by=max(er[[metric]]/20))
+
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) +
+    ggpubr::stat_pvalue_manual(
+      stat.test, 
+      label = "p.adj.signif", 
+      y.position = y) +
+    theme_light() + 
+    scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 90),
+          axis.title.x=element_blank()) +
+    labs(y=paste(metric, "index")) 
+}
+
+beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color="What", Group="Repeat"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  library(ggforce)
+  
+  
+  ordination.b <- ordinate(ps, "NMDS", "bray")
+  mds <- as.data.frame(ordination.b$points)
+  p  <-  plot_ordination(ps,
+                         ordination.b,
+                         type="sample",
+                         color = Color,
+                         title="NMDS - Bray-Curtis",
+                         # title=NULL,
+                         axes = c(2,3) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    annotate("text",
+    x=min(mds$MDS1) + abs(min(mds$MDS1))/7,
+    y=max(mds$MDS2),
+    label=paste0("Stress -- ", round(ordination.b$stress, 3))) +
+    geom_mark_ellipse(aes_string(group = Group, label = Group),
+                      label.fontsize = 10,
+                      label.buffer = unit(2, "mm"),
+                      label.minwidth = unit(5, "mm"),
+                      con.cap = unit(0.1, "mm"),
+                      con.colour='gray') +
+    theme(legend.position = "none") +
+    ggplot2::scale_fill_viridis_c(option = "H")
+  
+  return(p)
+}
+
+
+```
+
+```{r, message=FALSE}
+
+library(ampvis2)
+
+amp.exl <- phyloseq_to_ampvis2(ps.exl)
+amp_heatmap(amp.exl, tax_show = 40, 
+            group_by = "Feature", 
+            tax_aggregate = "OTU",
+            tax_add = "Genus", 
+            normalise=FALSE)
+
+amp.inall <- phyloseq_to_ampvis2(ps.inall)
+amp_heatmap(amp.inall, 
+            tax_show = 40, 
+            group_by = "Feature", 
+            tax_aggregate = "OTU",
+            tax_add = "Genus", 
+            normalise=FALSE)
+
+
+
+```
+
+```{r}
+
+phyloseq_to_ampvis2 <- function(physeq) {
+  #check object for class
+  if(!any(class(physeq) %in% "phyloseq"))
+    stop("physeq object must be of class \"phyloseq\"", call. = FALSE)
+  
+  #ampvis2 requires taxonomy and abundance table, phyloseq checks for the latter
+  if(is.null(physeq@tax_table))
+    stop("No taxonomy found in the phyloseq object and is required for ampvis2", call. = FALSE)
+  
+  #OTUs must be in rows, not columns
+  if(phyloseq::taxa_are_rows(physeq))
+    abund <- as.data.frame(phyloseq::otu_table(physeq)@.Data)
+  else
+    abund <- as.data.frame(t(phyloseq::otu_table(physeq)@.Data))
+  
+  #tax_table is assumed to have OTUs in rows too
+  tax <- phyloseq::tax_table(physeq)@.Data
+  
+  #merge by rownames (OTUs)
+  otutable <- merge(
+    abund,
+    tax,
+    by = 0,
+    all.x = TRUE,
+    all.y = FALSE,
+    sort = FALSE
+  )
+  colnames(otutable)[1] <- "OTU"
+  
+  #extract sample_data (metadata)
+  if(!is.null(physeq@sam_data)) {
+    metadata <- data.frame(
+      phyloseq::sample_data(physeq),
+      row.names = phyloseq::sample_names(physeq), 
+      stringsAsFactors = FALSE, 
+      check.names = FALSE
+    )
+    
+    #check if any columns match exactly with rownames
+    #if none matched assume row names are sample identifiers
+    samplesCol <- unlist(lapply(metadata, function(x) {
+      identical(x, rownames(metadata))}))
+    
+    if(any(samplesCol)) {
+      #error if a column matched and it's not the first
+      if(!samplesCol[[1]])
+        stop("Sample ID's must be in the first column in the sample metadata, please reorder", call. = FALSE)
+    } else {
+      #assume rownames are sample identifiers, merge at the end with name "SampleID"
+      if(any(colnames(metadata) %in% "SampleID"))
+        stop("A column in the sample metadata is already named \"SampleID\" but does not seem to contain sample ID's", call. = FALSE)
+      metadata$SampleID <- rownames(metadata)
+      
+      #reorder columns so SampleID is the first
+      metadata <- metadata[, c(which(colnames(metadata) %in% "SampleID"), 1:(ncol(metadata)-1L)), drop = FALSE]
+    }
+  } else
+    metadata <- NULL
+  
+  #extract phylogenetic tree, assumed to be of class "phylo"
+  if(!is.null(physeq@phy_tree)) {
+    tree <- phyloseq::phy_tree(physeq)
+  } else
+    tree <- NULL
+  
+  #extract OTU DNA sequences, assumed to be of class "XStringSet"
+  if(!is.null(physeq@refseq)) {
+    #convert XStringSet to DNAbin using a temporary file (easiest)
+    fastaTempFile <- tempfile(pattern = "ampvis2_", fileext = ".fa")
+    Biostrings::writeXStringSet(physeq@refseq, filepath = fastaTempFile)
+  } else
+    fastaTempFile <- NULL
+  
+  #load as normally with amp_load
+  ampvis2::amp_load(
+    otutable = otutable,
+    metadata = metadata,
+    tree = tree,
+    fasta = fastaTempFile
+  )
+}
+
+```
+
+```{r}
+
+library("ANCOMBC")
+
+ancom_da_glob <- ancombc(phyloseq = ps.inall,
+                         formula = "Feature",
+                         p_adj_method = "BH", 
+                         prv_cut = 0, 
+                         group = "Feature", 
+                         struc_zero = TRUE, 
+                         neg_lb = FALSE, 
+                         tol = 1e-5,
+                         max_iter = 100, 
+                         conserve = TRUE, 
+                         alpha = 0.05, 
+                         global = TRUE
+                         )
+
+```
+
+
+```{r}
+
+ps.inall@sam_data$Repeat
+
+```
+
+
+```{r}
+
+ps_vst <- function(ps, factor){
+  
+  require(DESeq2)
+  require(phyloseq)
+  
+  diagdds = phyloseq_to_deseq2(ps, as.formula(paste( "~", factor)))              
+  diagdds = estimateSizeFactors(diagdds, type="poscounts")
+  diagdds = estimateDispersions(diagdds, fitType = "local") 
+  pst <- varianceStabilizingTransformation(diagdds)
+  pst.dimmed <- t(as.matrix(assay(pst))) 
+  # pst.dimmed[pst.dimmed < 0.0] <- 0.0
+  ps.varstab <- ps
+  otu_table(ps.varstab) <- otu_table(pst.dimmed, taxa_are_rows = FALSE) 
+  return(ps.varstab)
+}
+
+ps.varstab <- ps_vst(ps.inall, "Repeat")
+
+
+```
+
+
+```{r}
+
+data <- ps.varstab@otu_table@.Data %>% 
+  as.data.frame()
+
+data
+```
+
+
+```{r}
+
+powers <-  c(c(1:10), seq(from = 12, to=30, by=1))
+powers
+sft <-  pickSoftThreshold(data, powerVector = powers, verbose = 5, networkType = "unsigned")
+sft 
+
+```
+
+
+```{r}
+
+plot(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2], xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n", main = paste("Scale independence"))
+text(sft$fitIndices[,1], -sign(sft$fitIndices[,3])*sft$fitIndices[,2], labels=powers,cex=0.9,col="red")
+abline(h=0.9,col="salmon")
+
+```
+
+```{r}
+
+detachAllPackages()
+library(WGCNA)
+
+
+net2 <-   blockwiseModules(data, power=4, TOMType="unsigned", networkType="unsigned")
+mergedColors2 <-  labels2colors(net2$colors, colorSeq = c("salmon", "darkgreen", "cyan", "red", "black", "darkred", "palegreen", "gray", "blue", "yellow"))
+
+plotDendroAndColors(
+  net2$dendrograms[[1]],
+  mergedColors2[net2$blockGenes[[1]]],
+  "Module colors",
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05)
+
+
+```
+
+
+##### Импорт 2
+
+```{r, warning=FALSE, message=FALSE}
+
+library(phyloseq)
+library(tidyverse)
+library(ggpubr)
+library(ampvis2)
+library(heatmaply)
+library(WGCNA)
+library(phyloseq)
+library(ggtree)
+library(tidyverse)
+
+```
+```{r, fig.width=8, fig.height=6}
+# define numbers of genes and samples
+nOTUs <- ncol(data)
+nSamples <- nrow(data)
+
+# Recalculate MEs with color labels
+MEs0 <- moduleEigengenes(data, mergedColors2)$eigengenes
+MEs <- orderMEs(MEs0)
+
+names(MEs) <- substring(names(MEs), 3)
+
+
+moduleTraitCor <- cor(MEs, agra_data, use = "p")
+moduleTraitPvalue = corPvalueStudent(moduleTraitCor, nSamples)
+
+# PLOT
+sizeGrWindow(10,6)
+textMatrix <- paste(signif(moduleTraitCor, 2), "\n(", signif(moduleTraitPvalue, 1), ")", sep = "")
+dim(textMatrix) <- dim(moduleTraitCor)
+par(mar = c(222, 8.5, 11, 3))
+
+# Display the correlation values within a heatmap
+labeledHeatmap(Matrix = moduleTraitCor, 
+               xLabels = names(agra_data),
+               yLabels = names(MEs), 
+               ySymbols = names(MEs), 
+               # yLabelsPosition = "right",
+               cex.lab.y = 0.85,
+               colorLabels = FALSE, 
+               colors = blueWhiteRed(50),
+               textMatrix = textMatrix, 
+               setStdMargins = FALSE,
+               cex.text = 0.8,
+               zlim = c(-1,1),
+               main = paste("Корреляция кластеров с параметрами почвы"))
+
+```
+
+
+```{r}
+
+modules_of_interest = mergedColors2 %>% unique()
+
+module_df <- data.frame(
+  asv = names(net2$colors),
+  colors = mergedColors2
+)
+
+# module_df[module_df == "yellow"] <- "salmon"
+
+submod <-  module_df %>%
+  subset(colors %in% modules_of_interest)
+
+row.names(module_df) = module_df$asv
+
+subexpr = as.data.frame(t(data))[submod$asv,]
+
+submod_df <- data.frame(subexpr) %>%
+  mutate(
+    asv = row.names(.)
+  ) %>%
+  pivot_longer(-asv) %>%
+  mutate(
+    module = module_df[asv,]$colors
+  )
+
+
+submod_df <- submod_df %>% 
+  mutate(name = gsub("\\_.*","",submod_df$name)) %>% 
+  group_by(name, asv) %>% 
+  summarise(value = mean(value), asv = asv, module = module) %>% 
+  relocate(c(asv, name, value, module)) %>% 
+  ungroup() %>% 
+  mutate(module = as.factor(module))
+
+
+p <- submod_df %>% 
+  ggplot(., aes(x=name, y=value, group=asv)) +
+  geom_line(aes(color = module),
+            alpha = 0.2) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90),
+    legend.position = "none"
+  ) +
+  facet_grid(rows = vars(module)) +
+  labs(x = "treatment",
+       y = "normalized expression")
+
+
+p + scale_color_manual(values = levels(submod_df$module))
+
+
+```
+
+```{r, warning=FALSE}
+
+color_filt <- function(ps, df){
+  
+      library(tidyverse)
+      library(reshape2)
+      library(gridExtra)
+
+  
+  l = list()
+  for (i in levels(df$module)){
+    message(i)
+    color_name <-  df %>% 
+      filter(module == i) %>% 
+      pull(asv) %>% 
+      unique()
+    ps.col <- prune_taxa(color_name, ps)
+    amp.col <- phyloseq_to_ampvis2(ps.col)
+    heat <- amp_heatmap(amp.col, tax_show = 50, 
+              group_by = "Repeat", 
+              tax_aggregate = "OTU",
+              tax_add = "Genus", 
+              normalise=FALSE, 
+              showRemainingTaxa = TRUE)
+    
+    ps.rel  <-  phyloseq::transform_sample_counts(ps.col, function(x) x / sum(x))
+    amp.r <- phyloseq_to_ampvis2(ps.rel)
+    heat.rel <- amp_heatmap(amp.r, tax_show = 50, 
+          group_by = "Repeat", 
+          tax_aggregate = "OTU",
+          tax_add = "Genus", 
+          normalise=FALSE, 
+          showRemainingTaxa = TRUE)
+    otus <- heat$data$Display %>% 
+        unique() %>% 
+        str_extract("Seq[1-9]+")
+    ps.col <- prune_taxa(taxa = otus, ps.col)
+    tree <- ps.col@phy_tree
+    taxa <- as.data.frame(ps.col@tax_table@.Data)
+    p1 <- ggtree(tree) +
+          geom_tiplab(size=2, align=TRUE, linesize=.5) +
+              theme_tree2()
+
+    taxa[taxa == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Allorhizobium"
+    taxa[taxa == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
+
+    tx <- taxa %>%
+      rownames_to_column("id") %>%
+      mutate(id = factor(id, levels = rev(get_taxa_name(p1)))) %>%
+      dplyr::select(-c(Kingdom, Species, Order)) %>%
+      melt(id.var = 'id')
+
+    p2 <- ggplot(tx, aes(variable, id)) +
+      geom_tile(aes(fill = value), alpha = 0.4) +
+      geom_text(aes(label = value), size = 2) +
+      theme_bw() +
+      theme(legend.position = "none",
+             axis.ticks.x=element_blank(),
+             axis.text.y=element_blank(),
+             axis.ticks.y=element_blank(),
+             axis.title.x = element_blank(),
+            axis.title.y = element_blank())
+
+    p <- ggpubr::ggarrange(p1, p2, widths = c(0.9, 1))
+    l[[i]] <- list("ps" = ps.col, 
+                   "amp" = amp.col,
+                   "heat" = heat,
+                   "heat_rel" = heat.rel,
+                   "tree" = p)
+
+  }
+  return(l)
+}
+
+
+```
+
+
+```{r, warning=FALSE}
+
+l_filt <- color_filt(ps.inall, submod_df)
+
+l_filt$gray$ps
+
+
+l_filt$gray$tree
+
+```
+
+```{r, warning=FALSE}
+
+l_filt$gray$tree
+l_filt$gray$ps
+
+amp_heatmap(l_filt$gray$amp, tax_show = 40, 
+      group_by = "Repeat", 
+      tax_aggregate = "Genus",
+      tax_add = "Phylum", 
+      normalise=TRUE, 
+      showRemainingTaxa = TRUE)
+
+```
+
+
 ```{r}
 
 ps.ym.class <- tax_glom(ps.ym, taxrank = "Class") 
@@ -457,6 +1213,8 @@ ancom_da_glob$res$beta %>%
 as.data.frame(t(ps.ym@otu_table)) %>% head()
 
 ```
+
+
 ```{r, fig.width=11, fig.height=9}
 
 ps.ym.clr <- ps.ym
@@ -474,7 +1232,7 @@ beta_custom_norm_pca_elli_w <- function(ps, seed = 7888, normtype="vst", Color="
 
   # попробуй заменить NMDS на PCoA
   # https://joey711.github.io/phyloseq/plot_ordination-examples.html и вот здесь куча вариантов ординаций в phyloseq - попробуй нарисовать отдельно для таксонов, а не образцов(не моей функцией, у меня зависнет, и лучше PCoA - так быстрее))
-  ordination.b <- ordinate(ps, "NMDS", "canberra")
+  ordination.b <- ordinate(ps, "MDS", "canberra")
   mds <- as.data.frame(ordination.b$points)
   p  <-  plot_ordination(ps,
                          ordination.b,
@@ -494,10 +1252,20 @@ beta_custom_norm_pca_elli_w <- function(ps, seed = 7888, normtype="vst", Color="
                       con.colour='gray') +
     theme(legend.position = "none") 
   
-  return(p)
+  return(list(p, ordination.b))
 }
 
-beta_custom_norm_pca_elli_w(ps.ym.clr, Color="Site", Group="Repeat")
+beta_custom_norm_pca_elli_w(ps.ym.clr, Color="Site", Group="Repeat")[[1]]
+
+pca <- beta_custom_norm_pca_elli_w(ps.ym.clr, Color="Site", Group="Repeat")[[2]]
+pca
+
+plot_scree(pca, title = NULL)
+
+clr.otu %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  head()
 
 ```
 
@@ -685,6 +1453,8 @@ ancom_da_glob_all <- ancombc(phyloseq = ps.ym.f,
 ancom_da_glob_all
 
 ```
+
+
 ```{r}
 
 ps.ym.f <-  phyloseq::filter_taxa(ps.ym, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
@@ -860,14 +1630,14 @@ plot_alpha <- function(ps, group, metric) {
 }
 
 
-p1 <- plot_alpha(ps.ym, 'Фон' ,'Observed')   
-p2 <- plot_alpha(ps.ym.ag, 'Залежь' ,'Observed') 
+p1 <- plot_alpha(ps.ya, 'Фон' ,'Observed')   
+p2 <- plot_alpha(ps.ya, 'Залежь' ,'Observed') 
 
-p3 <- plot_alpha(ps.ym, 'Фон' ,'Shannon')   
-p4 <- plot_alpha(ps.ym.ag, 'Залежь' ,'Shannon') 
+p3 <- plot_alpha(ps.ya, 'Фон' ,'Shannon')   
+p4 <- plot_alpha(ps.ya, 'Залежь' ,'Shannon') 
 
-p5 <- plot_alpha(ps.ym, 'Фон' ,'InvSimpson')   
-p6 <- plot_alpha(ps.ym.ag, 'Залежь' ,'InvSimpson') 
+p5 <- plot_alpha(ps.ya, 'Фон' ,'InvSimpson')   
+p6 <- plot_alpha(ps.ya, 'Залежь' ,'InvSimpson') 
 
 ggarrange(p1, p2, p3, p4, p5, p6, labels = c("Фон", "Залежь", "", "", "", "", ""), ncol = 2, nrow = 3)
                   
@@ -875,6 +1645,64 @@ ggarrange(p1, p2, p3, p4, p5, p6, labels = c("Фон", "Залежь", "", "", "
 
 
 
+
+```{r}
+
+ps.f <- readRDS("ps.f")
+mp$AEV_site
+
+```
+
+```{r}
+
+ps.ya <- prune_samples(sample_data(ps.f)$Region %in% c("Yakutsk"), ps.f)
+ps.ya  <- prune_taxa(taxa_sums(ps.ya) > 0, ps.ya)
+
+```
+
+```{r}
+ids <- ps.f@sam_data %>% 
+  data.frame() %>%
+  rownames_to_column("ID") %>% 
+  filter(Region == "Yakutsk") %>%
+  pull(ID)
+
+agra <- data_frame(
+  AEV_site = c(rep("Y1", 3), rep("Y2", 3), rep("Y3", 3), rep("Y7", 3), rep("Y9", 3), rep("Y10", 3), rep("Y11", 3)),
+  pH = c(rep(5.6, 3), rep(5.16, 3), rep(5.9, 3), rep(6.95, 3), rep(5.23, 3), rep(5.47, 3), rep(5.72, 3)),
+  P = c(rep(40, 3), rep(29, 3), rep(346, 3), rep(248, 3), rep(34, 3), rep(120, 3), rep(125, 3)),
+  K = c(rep(39, 3), rep(174, 3), rep(43, 3), rep(30, 3), rep(38, 3), rep(114, 3), rep(41, 3)),
+  NH3 = c(rep(8.07, 3), rep(18.3, 3), rep(6.95, 3), rep(20.6, 3), rep(10.8, 3), rep(34.5, 3), rep(23.0, 3)),
+  NO3 = c(rep(0.8, 3), rep(2.74, 3), rep(2.73, 3), rep(1.6, 3), rep(7.54, 3), rep(1.46, 3), rep(0.94, 3)),)
+
+ps.ya@sam_data <- ps.f@sam_data %>% 
+  data.frame() %>%
+  filter(Region == "Yakutsk") %>% 
+  mutate(AEV_site = as.factor(AEV_site)) %>% 
+  select_if(~ !any(is.na(.))) %>% 
+  cbind(agra) %>% 
+  sample_data()
+
+
+tree <- read_tree(treefile="tree")
+ps.ya@phy_tree <- tree
+ps.ya
+
+agra_data <- agra %>% select(-AEV_site)
+agra_data
+
+```
+
+
+
+
+```{r}
+
+
+beta_custom_norm_NMDS_elli_w(ps.ya, Color = "AEV_site", Group = "AEV_site")
+
+
+```
 
 
 
