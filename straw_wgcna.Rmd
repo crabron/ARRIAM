@@ -286,7 +286,7 @@ beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color=
                          color = Color,
                          title="NMDS - Bray-Curtis",
                          # title=NULL,
-                         axes = c(2,3) ) + 
+                         axes = c(1,2) ) + 
     theme_bw() + 
     theme(text = element_text(size = 10)) + 
     geom_point(size = 3) +
@@ -344,7 +344,7 @@ plot_alpha_w_toc <- function(ps, group, metric) {
 ## Alpha
 
 
-```{r, fig.width=14, fig.height=6}
+```{r, fig.width=14, fig.height=6, message=FALSE}
 
 p1 <- plot_alpha_w_toc(ps = ps.f, group = "Day", metric = "Observed")
 p2 <- plot_alpha_w_toc(ps = ps.f, group = "Day", metric = "Shannon")
@@ -354,7 +354,7 @@ ggarrange(p1, p2, p3, nrow = 1)
 
 ```
 
-
+\
 Add Group parameter to metadata - \
 - early - D01, D03, D05 \
 - middle - D07, D08, D10 \
@@ -467,7 +467,10 @@ avg.r %>%
 ```
 
 ### basic NMDS plot
-IN WORK!!
+
+По картинке кажется что происходит постепенное замедление изменений - \
+но из предыдущей картинки следует, что это не так - есть провал между 7-8-10, \
+но в среднем точки различаются довольно одинакого.
 
 ```{r, message=FALSE, fig.height=6, fig.width=8}
 
@@ -1005,7 +1008,7 @@ period_data
 
 Ну я вот не очень понимаю что делать дальше - привязать кластеры к этой картинке?
 
-```{r}
+```{r, message=FALSE}
 
 resp_median_bags <- resp_median %>% 
   left_join(period.data, by="day") %>% 
@@ -1214,4 +1217,20 @@ ps.m %>%
   facet_wrap(~ phylum)
 
 ```
+
+## Добавим грибов
+
+```{r}
+
+# потом
+# суп с котом
+
+```
+
+
+
+
+
+
+
 
