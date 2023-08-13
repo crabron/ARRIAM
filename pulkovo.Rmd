@@ -1,0 +1,1275 @@
+---
+title: "Pulkovo"
+author: "GrGladkov"
+date: '2023-03-01'
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 5
+    number_sections: true
+    theme: lumen
+    code_folding: hide
+---
+
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/pulkovo/d2")
+options(getClass.msg=FALSE)
+
+```
+
+
+## libraries
+
+```{r}
+
+library(tidyverse)
+library(phyloseq)
+library(ampvis2)
+
+```
+
+
+### import 
+
+Сырые данные - выход из DADA2 пайплайна. \
+В той же папке - статистика dada2
+
+```{r, include=FALSE}
+
+setwd("~/storage/pulkovo/d2")
+
+map <- read_tsv("/home/arina/data-processing/lab/andronov-pulkovsk-visoti/metadata_Pulkovo.txt") %>% 
+  mutate(SampleID = str_replace_all(SampleID, "-", ".")) %>% 
+  column_to_rownames("SampleID") %>% 
+  mutate(Repeat = paste0(`Geo-eng`, "_" , Sample)) %>% 
+  mutate(Site = `Geo-eng`) %>% 
+  select(-c(Sample, `Geo-eng`, replicate))
+
+otu <- read_tsv("otu_table.txt") %>% 
+  column_to_rownames("...1") %>% 
+  as.matrix %>% 
+  t()
+
+taxa <- read_tsv("taxa.txt") %>% 
+  column_to_rownames("...1") %>% 
+  as.matrix()
+
+rep <- Biostrings::readDNAStringSet("rep_seq.fasta")
+
+ps <- phyloseq(otu_table(otu, taxa_are_rows=FALSE),
+                tax_table(taxa),
+               sample_data(map),
+               refseq(rep))
+```
+
+
+Импорт уже готовых RDS объектов
+
+```{r}
+
+setwd("~/storage/pulkovo/d2")
+
+
+ps.ff <- readRDS("ps.ff")
+ancom <- readRDS("ancom")
+ancom_ff <- readRDS("ancom_ff")
+
+```
+
+
+### functions
+
+Функции используемые для дальнейших визуализаций.
+
+```{r}
+
+
+plot_rich_reads_samlenames_lm <- function(physeq, group = "Site", label = "Repeat"){
+  rish <- estimate_richness(physeq, measures = "Observed")
+  reads.sum <- as.data.frame(sample_sums(physeq))
+  reads.summary <- cbind(rish, reads.sum)
+  colnames(reads.summary) <- c("otus","reads")
+  reads.summary["Repeat"] <-unlist(purrr::map(stringr::str_split(rownames(physeq@sam_data), "\\.", 2), function(x) x[[2]]))
+  reads.summary["Site"] <- physeq@sam_data[[group]]
+  library(ggrepel)
+  require(ggforce)
+  p1 <- ggplot(data=reads.summary) + 
+    geom_point(aes(y=otus, x=log2(reads), color=Site),size=3) + 
+    geom_text_repel(aes(y=otus, x=log2(reads), label=paste0(Repeat))) + 
+    theme_bw() +
+    geom_smooth(aes(y=otus, x=log2(reads), fill=Site, color=Site),method=lm, se=FALSE, ymin = 1) + 
+    scale_x_continuous(sec.axis = sec_axis(sec.axis ~ 2**.)) 
+
+  return(p1)
+}
+
+beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color="What", Group="Repeat"){
+  require(phyloseq)
+  require(ggplot2)
+  require(ggpubr)
+  library(ggforce)
+  
+  
+  ordination.b <- ordinate(ps, "NMDS", "bray")
+  mds <- as.data.frame(ordination.b$points)
+  p  <-  plot_ordination(ps,
+                         ordination.b,
+                         type="sample",
+                         color = Color,
+                         title="NMDS - Bray-Curtis",
+                         # title=NULL,
+                         axes = c(1,2) ) + 
+    theme_bw() + 
+    theme(text = element_text(size = 10)) + 
+    geom_point(size = 3) +
+    annotate("text",
+    x=min(mds$MDS1) + abs(min(mds$MDS1))/7,
+    y=max(mds$MDS2),
+    label=paste0("Stress -- ", round(ordination.b$stress, 3))) +
+    geom_mark_ellipse(aes_string(group = Group, label = Group),
+                      label.fontsize = 10,
+                      label.buffer = unit(2, "mm"),
+                      label.minwidth = unit(5, "mm"),
+                      con.cap = unit(0.1, "mm"),
+                      con.colour='gray') +
+    theme(legend.position = "none") +
+    ggplot2::scale_fill_viridis_c(option = "H")
+  
+  return(p)
+}
+
+plot_alpha_w_toc <- function(ps, group, metric) {
+  
+  require(phyloseq)
+  require(ggplot2)
+  
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+  stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+    rstatix::tukey_hsd()
+  y <-  seq(max(er[[metric]]), length=length(stat.test$p.adj), by=max(er[[metric]]/20))
+
+  plot_richness(ps_a, x=group, measures=metric) + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) +
+    ggpubr::stat_pvalue_manual(
+      stat.test, 
+      label = "p.adj.signif", 
+      y.position = y) +
+    theme_light() + 
+    scale_color_brewer(palette="Dark2") +
+    theme(axis.text.x = element_text(angle = 90),
+          axis.title.x=element_blank()) +
+    labs(y=paste(metric, "index")) 
+}
+
+phyloseq_to_ampvis2 <- function(physeq) {
+  #check object for class
+  if(!any(class(physeq) %in% "phyloseq"))
+    stop("physeq object must be of class \"phyloseq\"", call. = FALSE)
+  
+  #ampvis2 requires taxonomy and abundance table, phyloseq checks for the latter
+  if(is.null(physeq@tax_table))
+    stop("No taxonomy found in the phyloseq object and is required for ampvis2", call. = FALSE)
+  
+  #OTUs must be in rows, not columns
+  if(phyloseq::taxa_are_rows(physeq))
+    abund <- as.data.frame(phyloseq::otu_table(physeq)@.Data)
+  else
+    abund <- as.data.frame(t(phyloseq::otu_table(physeq)@.Data))
+  
+  #tax_table is assumed to have OTUs in rows too
+  tax <- phyloseq::tax_table(physeq)@.Data
+  
+  #merge by rownames (OTUs)
+  otutable <- merge(
+    abund,
+    tax,
+    by = 0,
+    all.x = TRUE,
+    all.y = FALSE,
+    sort = FALSE
+  )
+  colnames(otutable)[1] <- "OTU"
+  
+  #extract sample_data (metadata)
+  if(!is.null(physeq@sam_data)) {
+    metadata <- data.frame(
+      phyloseq::sample_data(physeq),
+      row.names = phyloseq::sample_names(physeq), 
+      stringsAsFactors = FALSE, 
+      check.names = FALSE
+    )
+    
+    #check if any columns match exactly with rownames
+    #if none matched assume row names are sample identifiers
+    samplesCol <- unlist(lapply(metadata, function(x) {
+      identical(x, rownames(metadata))}))
+    
+    if(any(samplesCol)) {
+      #error if a column matched and it's not the first
+      if(!samplesCol[[1]])
+        stop("Sample ID's must be in the first column in the sample metadata, please reorder", call. = FALSE)
+    } else {
+      #assume rownames are sample identifiers, merge at the end with name "SampleID"
+      if(any(colnames(metadata) %in% "SampleID"))
+        stop("A column in the sample metadata is already named \"SampleID\" but does not seem to contain sample ID's", call. = FALSE)
+      metadata$SampleID <- rownames(metadata)
+      
+      #reorder columns so SampleID is the first
+      metadata <- metadata[, c(which(colnames(metadata) %in% "SampleID"), 1:(ncol(metadata)-1L)), drop = FALSE]
+    }
+  } else
+    metadata <- NULL
+  
+  #extract phylogenetic tree, assumed to be of class "phylo"
+  if(!is.null(physeq@phy_tree)) {
+    tree <- phyloseq::phy_tree(physeq)
+  } else
+    tree <- NULL
+  
+  #extract OTU DNA sequences, assumed to be of class "XStringSet"
+  if(!is.null(physeq@refseq)) {
+    #convert XStringSet to DNAbin using a temporary file (easiest)
+    fastaTempFile <- tempfile(pattern = "ampvis2_", fileext = ".fa")
+    Biostrings::writeXStringSet(physeq@refseq, filepath = fastaTempFile)
+  } else
+    fastaTempFile <- NULL
+  
+  #load as normally with amp_load
+  ampvis2::amp_load(
+    otutable = otutable,
+    metadata = metadata,
+    tree = tree,
+    fasta = fastaTempFile
+  )
+}
+
+filter_chrmitnas <- function(physeq){
+  ps_object <- physeq 
+  ps_object <- subset_taxa(ps_object, Phylum != "NA")
+  
+  # ps_object@tax_table[is.na(ps_object@tax_table)] <- TRUEps@tax_table@.Data
+  ps_object <- subset_taxa(ps_object,
+                           !(Family  == "Mitochondria" |
+                               Class   == "Chloroplast" |
+                               Order   == "Chloroplast"))
+  # ps_object@tax_table <- dplyr::na_if(ps_object@tax_table, TRUE)
+  ps.f <- ps_object
+  
+  out_old <- capture.output(physeq)[4] %>% 
+    str_extract(regex("([1-9]).*(?= by)"))
+  out_new <- capture.output(ps.f)[4] %>% 
+    str_extract(regex("([1-9]).*(?= by)"))
+  message(paste0("old = ", out_old))
+  message(paste0("filtered = ", out_new))
+  
+  return(ps.f)
+  
+}
+
+merge_samples_mean <- function(physeq, group){
+  group_sums <- as.matrix(table(sample_data(physeq)[ ,group]))[,1]
+  merged <- merge_samples(physeq, group)
+  x <- as.matrix(otu_table(merged))
+  if(taxa_are_rows(merged)){ x<-t(x) }
+  out <- t(x/group_sums)
+  out <- otu_table(out, taxa_are_rows = TRUE)
+  otu_table(merged) <- out
+  return(merged)
+}
+
+lsf.str()
+
+
+```
+
+Фильтрация образцов с низкой представленностью. \
+filter_chrmitnas - чистит датасет он NA на уровне фил, хлоропласты и митохондрии.
+
+```{r, fig.width=10, fig.height=9, message=FALSE}
+
+ps.f <- filter_chrmitnas(ps)
+
+plot_rich_reads_samlenames_lm(ps.f, group = "Site", label = "Sample")  
+
+ps.ff <- prune_samples(!sample_names(ps.f) %in% paste0("Andronov.SEQ130.",c(34, 5, 15)), ps.f)
+ps.ff  <- prune_taxa(taxa_sums(ps.ff) > 0, ps.ff)
+
+
+plot_rich_reads_samlenames_lm(ps.ff, group = "Site", label = "Repeat") 
+
+```
+
+## Beta
+
+
+```{r, message=FALSE, warning=FALSE}
+
+beta_custom_norm_NMDS_elli_w(ps.ff, Color = "Site", Group = "Site") 
+
+```
+
+То же, но с рарефакшеном.
+
+```{r, message=FALSE, warning=FALSE}
+
+ps.r <- rarefy_even_depth(ps.ff,rngseed = 1221)
+beta_custom_norm_NMDS_elli_w(ps.r, Color = "Site", Group = "Site") 
+
+
+```
+
+## alpha
+
+без разрежения
+
+```{r}
+
+
+
+p1 <- plot_alpha_w_toc(ps = ps.ff, group = "Site", metric = "Observed")
+p2 <- plot_alpha_w_toc(ps = ps.ff, group = "Site", metric = "Shannon")
+p3 <- plot_alpha_w_toc(ps = ps.ff, group = "Site", metric = "InvSimpson")
+ggarrange(p1, p2, p3, nrow = 1)
+
+```
+
+с разряжением
+
+```{r}
+
+p1 <- plot_alpha_w_toc(ps = ps.r, group = "Site", metric = "Observed")
+p2 <- plot_alpha_w_toc(ps = ps.r, group = "Site", metric = "Shannon")
+p3 <- plot_alpha_w_toc(ps = ps.r, group = "Site", metric = "InvSimpson")
+ggarrange(p1, p2, p3, nrow = 1)
+
+```
+
+
+## amp simple
+
+мажорные филотипы - относительная представленность
+
+```{r, fig.width=8, fig.height=10}
+
+amp <- phyloseq_to_ampvis2(ps.ff)
+
+amp
+
+amp_heatmap(amp, tax_show = 60, 
+      group_by = "Site", 
+      tax_aggregate = "OTU",
+      tax_add = "Genus", 
+      round =  2, 
+      normalise=TRUE, 
+      showRemainingTaxa = FALSE)
+
+
+
+```
+
+уровень фил \
+
+названия фил не исправлены на \
+
+```
+Oren, Aharon, and George M. Garrity. “Valid Publication of the Names of Forty-Two Phyla of Prokaryotes.” International Journal of Systematic and Evolutionary Microbiology 71, no. 10 (October 20, 2021). https://doi.org/10.1099/ijsem.0.005056. 
+```
+
+можно их исправить например при помощи чего-то похожего на код ниже: \
+```
+taxa <- read_tsv("taxa.txt") %>% 
+  column_to_rownames("...1") %>% 
+  mutate(Phylum = str_replace_all(Phylum, c("Firmicutes" = "Bacillota",
+                                            "Chloroflexi" = "Chloroflexota",
+                                            "Proteobacteria" = "Pseudomonadota",
+                                            "Desulfobacterota" = "Thermodesulfobacteriota",
+                                            "Crenarchaeota" = "Thermoproteota",
+                                            "Cyanobacteria" = "Cyanobacteriota"))) %>% 
+  as.matrix() 
+```
+
+```{r}
+
+amp_heatmap(amp,
+            tax_show = 12,
+            group_by = "Site",
+            tax_aggregate = "Phylum",
+            tax_add = "Kingdom",
+            normalise=TRUE,
+            showRemainingTaxa = TRUE)
+
+```
+
+
+### Soil chemestry and metadata
+
+PERMANOVA - как химия влияет на микробиом
+
+```{r}
+
+ps.merged <- merge_samples(ps.ff, "Repeat")
+
+d_meta <- ps.merged@sam_data %>% 
+  data.frame() %>% 
+  select(c("Na.water", "K.water", "Cl", "pH.salt", "C.total", "Electro")) %>% 
+  scale() %>% 
+  as.data.frame()
+
+d_otu <- phyloseq::distance(ps.merged, "bray")
+
+dec <- sort(c("Na.water", "K.water", "Cl", "pH.salt", "C.total", "Electro"), decreasing = TRUE )
+sort <- sort(c("Na.water", "K.water", "Cl", "pH.salt", "C.total", "Electro"), decreasing = FALSE )
+
+f_dec <- as.formula(paste0("d_otu ~", noquote(paste(dec, collapse=" + "))))
+f_sort <- as.formula(paste0("d_otu ~", noquote(paste(sort, collapse=" + "))))
+
+
+list(
+  order_forward = vegan::adonis2(f_dec, data = d_meta),
+  order_backward = vegan::adonis2(f_sort, data = d_meta)
+)
+
+
+```
+
+химия - электропроводность(мера засоленности) \
+сипользован Z-score!
+
+```{r}
+
+
+ps.ff@sam_data %>% 
+  data.frame() %>%
+  # rownames_to_column("shit") %>% 
+  # column_to_rownames("Name") %>% 
+  select(which(sapply(., is.numeric)), Site) %>% 
+  group_by(Site) %>% 
+  summarise(across(everything(), mean),
+            .groups = 'drop') %>% 
+  column_to_rownames("Site") %>% 
+  scale() %>% 
+  heatmaply::ggheatmap()
+
+
+```
+
+
+## CCA
+
+cca по сэмплам
+
+```{r, fig.height=9, fig.width=10, warning=FALSE, message=FALSE}
+
+library(ggrepel)
+
+ps.merged <- phyloseq::merge_samples(ps.ff, "Repeat")
+physeq <- ps.ff
+
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+otus.ps.vegan <- veganifyOTU(physeq)
+rownames(otus.ps.vegan) <- ps.ff@sam_data$Repeat
+metadata <- physeq@sam_data %>% 
+  data.frame() %>% 
+  select(c("Na.water", "K.water", "Cl", "pH.salt", "C.total", "Electro"))
+
+dec <- sort(c("Na.water", "K.water", "Cl", "pH.salt", "C.total", "Electro"), decreasing = TRUE )
+sort <- sort(c("Na.water", "K.water", "Cl", "pH.salt", "C.total", "Electro"), decreasing = FALSE )
+
+f_dec <- as.formula(paste0("otus.ps.vegan ~", noquote(paste(dec, collapse=" + "))))
+f_sort <- as.formula(paste0("otus.ps.vegan ~", noquote(paste(sort, collapse=" + "))))
+
+
+cca_dec <- vegan::cca(f_dec, data=metadata)
+cca_sort <- vegan::cca(f_sort, data=metadata)
+
+kate.ggcca.sites <- function(vare.cca){
+
+library(tidyverse)
+biplot <- as.data.frame(vare.cca$CCA$biplot)
+wa <- as.data.frame(vare.cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa))))
+fdat_amazing <- rbind(biplot, wa) 
+fdat_amazing <- fdat_amazing %>%
+  mutate(label_size = ifelse(Score == "biplot", 4.5, 3))
+ 
+p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  # geom_abline(intercept=seq(-100, 100, 25), slope=1, colour="grey", alpha=0.5) +
+  # geom_abline(intercept=seq(-100, 100, 25), slope=-1, colour="grey", alpha=0.5) +
+  geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2),
+               size = 0.6, alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=fdat_amazing$label_size) + 
+  xlab(paste0(round(vare.cca$CCA$eig[1], 3)*100, "% CCA1")) +
+  ylab(paste0(round(vare.cca$CCA$eig[2], 3)*100, "% CCA2")) +
+  grids(linetype = "dashed") +
+  theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+  return(p)
+}
+
+cca.sites <- kate.ggcca.sites(cca_dec)
+cca.sites
+
+```
+
+тест на мультиколлинеарность
+
+```{r}
+
+vegan::vif.cca(cca_dec)
+
+```
+
+
+ссa по филотипам - отрисованы только 100 мажорных филотипов - цвет - к какой филе относятся
+
+```{r, fig.height=9, fig.width=10}
+
+
+library(ggrepel)
+
+ps.fff <-  phyloseq::filter_taxa(ps.ff, function(x) sum(x > 3) > (0.1*length(x)), TRUE)
+# ps.varstab <- ps_vst(ps.fff, "type")
+ps.varstab <- ps.ff
+# ps.varstab.merged <- phyloseq::merge_samples(ps.varstab, "Repeat")
+# ps.varstab.merged.family <- tax_glom(ps.fff, taxrank="Family")
+
+physeq <- ps.fff
+ps.varstab <- physeq
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+otus.ps.vegan <- veganifyOTU(physeq)
+metadata <- as(sample_data(physeq), "data.frame") 
+cca_w_varstab_asv <- vegan::cca(f_dec,  data=metadata)
+
+wa <- as.data.frame(cca_w_varstab_asv$CCA$v) %>% 
+  rownames_to_column("ID")
+
+taxa.pruned <- as.data.frame(ps.varstab@tax_table@.Data) %>% 
+  rownames_to_column("ID")
+
+taxa.pruned <- taxa.pruned %>%  
+  mutate_all(as.character)
+
+# old.tips <- tree$tip.label
+# matches <- regmatches(tree$tip.label, gregexpr("[[:digit:]]+", tree$tip.label))
+# taxa.pruned$number <- as.numeric(unlist(matches))
+# Shitty taxa formating part
+
+taxa.pruned$taxa <- ifelse(is.na(taxa.pruned$Genus),
+                            ifelse(is.na(taxa.pruned$Family),
+                            ifelse(is.na(taxa.pruned$Order), 
+                            ifelse(is.na(taxa.pruned$Class), taxa.pruned$Phylum, taxa.pruned$Class) , taxa.pruned$Order), taxa.pruned$Family), taxa.pruned$Genus)
+taxa.pruned[taxa.pruned == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
+taxa.pruned[taxa.pruned == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Pararhizobium"
+
+taxa.pruned$taxa2 <- ifelse(is.na(taxa.pruned$Species),
+                            with(taxa.pruned, paste0(taxa)),
+                            with(taxa.pruned, paste0(taxa, " ", Species )))
+taxa.pruned$phylum <- ifelse(taxa.pruned$Phylum == "Proteobacteria", with(taxa.pruned, paste0(taxa.pruned$Class)), with(taxa.pruned, paste0(taxa.pruned$Phylum)))
+taxa.pruned$Label <- paste0(taxa.pruned$ID, "_", taxa.pruned$taxa2)
+
+wa <- full_join(wa, taxa.pruned, by="ID") %>% 
+  mutate(Score = "sites")
+
+#For the top 50 most abundant taxa, skip if use des res
+head_asv <- ps.varstab@otu_table@.Data %>% 
+  data.frame %>% 
+  colSums() %>% 
+  sort(decreasing = TRUE) %>% 
+  head(n=100) %>% 
+  names()
+  
+
+wa <- filter(wa, ID %in% head_asv)
+# maybe only different by des? Picture will be nice.
+# wa <- filter(wa, ID %in% row.des)
+# wa <- filter(wa, ID %in% row.des.so)
+
+biplot <- as.data.frame(cca_w_varstab_asv$CCA$biplot)
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot))))
+
+fdat_amazing <- plyr::rbind.fill(biplot, wa) %>% 
+  
+  mutate(Label = as.factor(Label))
+fdat_amazing <- fdat_amazing %>%
+  mutate(label_size = ifelse(Score == "biplot", 4.5, 3))
+
+p.cca.species <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+  geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2)) + 
+  geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), aes(x = 0, xend = CCA1, y = 0, yend = CCA2), alpha=0.8, color = "red", arrow = arrow(angle = 3)) +
+  geom_text_repel(aes(x=CCA1, y=CCA2, label= Label, colour = phylum), size=fdat_amazing$label_size) + 
+  xlab(paste0(round(cca_w_varstab_asv$CCA$eig[1], 3)*100, "% CCA1")) +
+  ylab(paste0(round(cca_w_varstab_asv$CCA$eig[2], 3)*100, "% CCA2")) +
+  grids(linetype = "dashed") +
+  geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  theme(legend.position = "top", panel.background = element_rect(fill = "white", colour = "grey50"))
+
+
+p.cca.species
+
+```
+
+## DA - ANCOM-BC
+
+Первоначальная версия - сильная фильтрация \ 
+Только филотипы распределенные более-менее везде + фильтрация внутри анкома на количество ридов
+
+```{r, fig.width=8, fig.height=10}
+
+ps.inall <- phyloseq::filter_taxa(ps.ff, function(x) sum(x > 10) > (0.1*length(x)), TRUE)
+
+amp.inall <- phyloseq_to_ampvis2(ps.inall)
+amp_heatmap(amp.inall,
+            tax_show = 40,
+            group_by = "Site",
+            tax_aggregate = "OTU",
+            tax_add = "Genus",
+            normalise=TRUE,
+            showRemainingTaxa = TRUE)
+
+```
+
+
+```{r, cache=TRUE, eval=FALSE}
+
+# ancom_da_glob <- ANCOMBC::ancombc(phyloseq = ps.inall,
+#                          formula = "Site",
+#                          p_adj_method = "fdr",
+#                          lib_cut = 1000,
+#                          group = "Site",
+#                          struc_zero = TRUE,
+#                          neg_lb = TRUE,
+#                          tol = 1e-5,
+#                          max_iter = 100,
+#                          conserve = TRUE,
+#                          alpha = 0.05,
+#                          global = TRUE)
+
+set.seed(123)
+ancom <-  ANCOMBC::ancombc2(data = ps.inall, 
+  tax_level = NULL,
+  fix_formula = "Site",
+  rand_formula = NULL,
+  p_adj_method = "fdr",
+  pseudo = 0, 
+  pseudo_sens = TRUE,
+  prv_cut = 0.10,
+  lib_cut = 1000,
+  s0_perc = 0.05,
+  group = "Site",
+  struc_zero = TRUE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 15, 
+  verbose = TRUE,
+  global = TRUE, 
+  pairwise = TRUE, 
+  dunnet = TRUE, 
+  trend = FALSE,
+  iter_control = list(tol = 1e-2, max_iter = 20, verbose = TRUE),
+  em_control = list(tol = 1e-5, max_iter = 100),
+  lme_control = lme4::lmerControl(),
+  mdfdr_control = list(fwer_ctrl_method = "holm", B = 100),
+  trend_control = list(contrast = list(matrix(c(1, 0, -1, 1),
+    nrow = 2,
+    byrow = TRUE),
+    matrix(c(-1, 0, 1, -1),
+    nrow = 2,
+    byrow = TRUE)),
+   node = list(2, 2),
+   solver = "ECOS",
+  B = 100)
+  )
+
+```
+
+Более мягкая фильтрация.
+
+```{r, cache=TRUE, eval=FALSE}
+
+set.seed(5882)
+ancom_ff <-  ANCOMBC::ancombc2(data = ps.ff, 
+  tax_level = NULL,
+  fix_formula = "Site",
+  rand_formula = NULL,
+  p_adj_method = "fdr",
+  pseudo = 0, 
+  pseudo_sens = TRUE,
+  prv_cut = 0.10,
+  s0_perc = 0.05,
+  group = "Site",
+  struc_zero = TRUE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 20, 
+  verbose = TRUE,
+  global = TRUE, 
+  pairwise = TRUE, 
+  dunnet = TRUE, 
+  trend = FALSE,
+  iter_control = list(tol = 1e-2, max_iter = 20, verbose = TRUE),
+  em_control = list(tol = 1e-5, max_iter = 100),
+  lme_control = lme4::lmerControl(),
+  mdfdr_control = list(fwer_ctrl_method = "holm", B = 100),
+  trend_control = list(contrast = list(matrix(c(1, 0, -1, 1),
+    nrow = 2,
+    byrow = TRUE),
+    matrix(c(-1, 0, 1, -1),
+    nrow = 2,
+    byrow = TRUE)),
+   node = list(2, 2),
+   solver = "ECOS",
+  B = 100)
+  )
+
+# saveRDS(ancom_ff, "ancom_ff")
+
+```
+
+Нормализация библиотек. Процедура описана в 
+
+http://www.bioconductor.org/packages/release/bioc/vignettes/ANCOMBC/inst/doc/ANCOMBC.html \
+
+раздел "Bias-corrected abundances" \
+
+Статья с теорией(математика там вроде в сапплементе): \
+
+Lin, H., Peddada, S.D. Analysis of compositions of microbiomes with bias correction. Nat Commun 11, 3514 (2020). https://doi.org/10.1038/s41467-020-17041-7
+\
+ps.an - phyloseq объект со скорректированными прочтениями + log 
+
+```{r}
+
+samp_frac <-  ancom_ff$samp_frac
+
+# Replace NA with 0
+samp_frac[is.na(samp_frac)] <-  0 
+# Add pesudo-count (1) to avoid taking the log of 0
+log_obs_abn = log(ancom_ff$feature_table + 1)
+# Adjust the log observed abundances
+log_corr_abn = t(t(log_obs_abn) - samp_frac)
+# Show the first 6 sample
+
+
+ps.an <- prune_taxa(taxa_names(ps.ff) %in% rownames(log_corr_abn), ps.ff)
+otu_table(ps.an) <- otu_table(t(log_corr_abn), taxa_are_rows = FALSE)
+
+log_corr_abn %>%
+  DT::datatable(caption = "Bias-corrected log observed abundances")
+
+```
+
+### Vulcano
+
+Сравнение - относительно Ашана. \
+Читать lfc_Sitehigh_road так: \
+log-fold change между sample Ашан и high_road 
+
+```{r, fig.width=20, fig.height=7}
+
+sum <- log_corr_abn %>% 
+  as.data.frame() %>% 
+  rowSums() 
+
+ps.an.merged <- merge_samples(ps.an, "Site")
+mean.d <- ps.an.merged@otu_table %>% 
+  t() %>% 
+  data.frame() %>% 
+  mutate(
+    lfc_Sitehigh_road = (Ashan + high_road)/2,
+    lfc_SiteMiddle = (Ashan + Middle)/2,
+    lfc_SiteMiddle_Sitehigh_road = (Middle + high_road)/2
+  ) %>% 
+rownames_to_column("taxon") %>%  
+  select(c("taxon","lfc_Sitehigh_road", "lfc_SiteMiddle", "lfc_SiteMiddle_Sitehigh_road")) %>% 
+  pivot_longer(!taxon, names_to = "pair", values_to = "abundance")
+
+sum.d <- data.frame(taxon = names(sum), sum = sum, row.names = NULL)
+
+lfc <- ancom_ff$res_pair %>% 
+  select(c("taxon", "lfc_Sitehigh_road", "lfc_SiteMiddle", "lfc_SiteMiddle_Sitehigh_road"))
+
+data_for_plot <- ancom_ff$res_pair %>% 
+  select(c("taxon","lfc_Sitehigh_road", "lfc_SiteMiddle", "lfc_SiteMiddle_Sitehigh_road")) %>% 
+  pivot_longer(c("lfc_Sitehigh_road", "lfc_SiteMiddle", "lfc_SiteMiddle_Sitehigh_road"),
+               names_to = "pair",
+               values_to = "lfc") %>% 
+  left_join(mean.d, by=c("taxon", "pair"))
+
+data_for_plot %>% 
+  ggplot(aes(x=abundance, y=lfc, label=taxon, color=pair)) + 
+  geom_point(alpha = 0.4) +
+  # geom_smooth(aes(y=value, x=mean, fill=pair, color=pair),
+              # method=lm, 
+              # method.args = list(family = "quasipoisson"), 
+              # se=TRUE) 
+  coord_flip() +
+  theme_bw() +
+  scale_color_brewer(palette="Dark2") +
+  facet_wrap(~pair) +
+  theme(legend.position="bottom") 
+
+```
+
+
+### treemap
+
+размер плитки - не abundance(обязательно реализую, но не сейчас), а количество достоверно меняющихся филотипов \
+должно быть больше альфапротеобактерий(?) по литературе \
+или у нас влияние другого фактора, а не засоленности или проблема анализа/визуализации
+
+```{r, fig.height=8, fig.width=12}
+
+taxa_family <- ps.ff@tax_table %>% 
+  as.data.frame() %>% 
+  # select(-c("Genus", "Species")) %>% 
+  rownames_to_column("ID") %>% 
+  # select(-ID) %>% 
+  distinct()
+
+ancom_ff$res %>% 
+  filter(diff_Sitehigh_road == TRUE) %>% 
+  select(c("taxon", "lfc_Sitehigh_road")) %>% 
+  dplyr::rename("ID" = "taxon") %>% 
+  left_join(taxa_family, by="ID") %>% 
+  mutate(`more in` = ifelse(lfc_Sitehigh_road > 0, "Highroad", "Ashan") %>% as.factor()) %>% 
+  group_by(Genus, `more in`, Phylum ) %>% 
+  summarise(area = n()) %>% 
+  mutate(Genus = str_replace_na(Genus, replacement = ' ')) %>% 
+  # DT::datatable() %>% 
+  ggplot(aes(area = area, 
+             fill = `more in`, 
+             subgroup = Phylum, 
+             label = Genus)) +
+  treemapify::geom_treemap() +
+  treemapify::geom_treemap_subgroup_border(color = "white") +
+  treemapify::geom_treemap_subgroup_text(place = "centre", 
+                                         grow = T, 
+                                         alpha = 0.5, 
+                                         colour = "black", 
+                                         fontface = "italic", 
+                                         min.size = 0) +
+  treemapify::geom_treemap_text(colour = "white", 
+                                place = "topleft", 
+                                grow = T, 
+                                reflow = T, 
+                                layout = 'squarified') +
+  scale_fill_brewer(palette="Dark2") +
+  theme(legend.position="bottom") 
+
+```
+
+
+## DA analysis from Andronov
+
+сравнены только Ашан и high_road
+
+```{r}
+
+# т.к. phyloseq не даёт брать средние от ридов пришлось использовать кастомную функцию(украдено)
+ps.mean <- merge_samples_mean(ps.ff, "Site")
+
+fn <- function(x, y) (x/y)
+
+otus_filtered <- ps.mean@otu_table@.Data %>% 
+    data.frame() %>% 
+    select(-Middle) %>% 
+    filter_all(all_vars(. > 0))
+
+dist_a <- otus_filtered %>% 
+  select(c("Ashan")) %>% 
+  proxy::dist(method = fn)
+  
+dist_b <- otus_filtered %>% 
+  select(c("high_road")) %>% 
+  proxy::dist(method = fn)
+
+res <- as.matrix(log(dist_a / dist_b)) %>% 
+  as.data.frame() %>%
+  select(where(is.numeric)) %>%
+  summarise(across(everything(), mean)) %>% 
+  pivot_longer(cols = everything()) %>% 
+  arrange(value)
+
+ggplot(res, aes(x=value)) + 
+  geom_density() +
+  labs(title = "денсити-плот значений статистики метода ЕЕ") +
+  theme_bw()
+
+
+```
+
+### volcano
+
+похоже у метода будут сильные проблемы с FDR(?) \
+статистики метода ЕЕ ~ lfc
+
+```{r, fig.width=5, fig.height=5}
+
+res_mod <- res %>% 
+  dplyr::rename("taxon" = "name", "lfc" = "value") 
+
+ps.merged.repeat <- merge_samples(ps.ff, "Site")
+
+ps.merged.repeat@otu_table %>% 
+  t() %>% 
+  data.frame() %>% 
+  select(-Middle) %>% 
+  rownames_to_column("taxon") %>% 
+  left_join(res_mod, by=c("taxon")) %>% 
+  mutate(`more in` = ifelse(lfc > 0, "Ashan", "high_road") %>% as.factor()) %>% 
+  pivot_longer(!c(taxon, `more in`, lfc), names_to = "Site", values_to = "abundance") %>% 
+  mutate(abundance = log2(abundance)) %>% 
+  mutate(Site = as.factor(Site)) %>% 
+  ggplot(aes(y=lfc, x=abundance)) + 
+  geom_point(alpha = 0.5) +
+  # geom_smooth(aes(y=value, x=mean, fill=pair, color=pair),
+              # method=lm, 
+              # method.args = list(family = "quasipoisson"), 
+              # se=TRUE) +
+  coord_flip() +
+  theme_bw()
+
+```
+
+### treemap
+
+то же по данным ЕЕ \
+в качестве порога(вместо p-value) я взял слева и справа по 2.5 перцентилю \
+FDR тоже нет, я его не вводил, но p-value у нас нет
+
+```{r, fig.height=7, fig.width=11}
+
+taxa_family <- ps.ff@tax_table %>% 
+  as.data.frame() %>% 
+  # select(-c("Genus", "Species")) %>% 
+  rownames_to_column("ID") %>% 
+  # select(-ID) %>% 
+  distinct()
+
+# ps.merged.mean@otu_table@.Data %>% 
+  # DT::datatable()
+
+# res %>%
+#   DT::datatable()
+
+quantile(res$value, c(0.025, .975))
+percentiles <- quantile(res$value, c(0.025, .975))
+
+res %>% 
+  filter( value > percentiles[[2]] | value < percentiles[[1]] ) %>% 
+  dplyr::rename("ID" = "name") %>% 
+  left_join(taxa_family, by="ID") %>% 
+  mutate(`more in` = ifelse(value > 0, "Highroad", "Ashan") %>% as.factor()) %>% 
+   group_by(Genus, `more in`, Phylum ) %>% 
+  summarise(area = n()) %>% 
+  mutate(Genus = str_replace_na(Genus, replacement = ' ')) %>% 
+  ggplot(aes(area = area, 
+             fill = `more in`, 
+             subgroup = Phylum, 
+             label = Genus)) +
+  treemapify::geom_treemap() +
+  treemapify::geom_treemap_subgroup_border(color = "white") +
+  treemapify::geom_treemap_subgroup_text(place = "centre", 
+                                         grow = T, 
+                                         alpha = 0.5, 
+                                         colour = "black", 
+                                         fontface = "italic", 
+                                         min.size = 0) +
+  treemapify::geom_treemap_text(colour = "white", 
+                                place = "topleft", 
+                                grow = T, 
+                                reflow = T, 
+                                layout = 'squarified') +
+  scale_fill_brewer(palette="Dark2") +
+  theme(legend.position="bottom")
+
+```
+
+
+может быть дело в том, что нет фильтрации данных? \
+добавлена стандартная фильтрация для композиционных анализов, выкинуто то, что встречается только в отдельных образцах(было 10696 - стало 888) \
+*это ps.filt 
+
+```{r}
+
+ps.filt  <- phyloseq::filter_taxa(ps.ff, function(x) sum(x > 10) > (0.1*length(x)), TRUE)
+
+# т.к. phyloseq не даёт брать средние от ридов пришлось использовать кастомную функцию(украдено)
+ps.mean <- merge_samples_mean(ps.filt, "Site")
+
+fn <- function(x, y) (x/y)
+
+otus_filtered <- ps.mean@otu_table@.Data %>% 
+    data.frame() %>% 
+    select(-Middle) %>% 
+    filter_all(all_vars(. > 0))
+
+dist_a <- otus_filtered %>% 
+  select(c("Ashan")) %>% 
+  proxy::dist(method = fn)
+  
+dist_b <- otus_filtered %>% 
+  select(c("high_road")) %>% 
+  proxy::dist(method = fn)
+
+res <- as.matrix(log(dist_a / dist_b)) %>% 
+  as.data.frame() %>%
+  select(where(is.numeric)) %>%
+  summarise(across(everything(), mean)) %>% 
+  pivot_longer(cols = everything()) %>% 
+  arrange(value)
+
+ggplot(res, aes(x=value)) + 
+  geom_density() +
+  labs(title = "денсити-плот значений статистики метода ЕЕ") +
+  theme_bw()
+
+
+```
+
+возможно стоит добавить стабилизацию дисперсии? Или я неправильно работаю с алгоритмом.
+
+```{r, fig.width=5, fig.height=5}
+
+res_mod <- res %>% 
+  dplyr::rename("taxon" = "name",
+                "lfc" = "value") 
+
+ps.merged.repeat <- merge_samples(ps.filt, "Site")
+
+ps.merged.repeat@otu_table %>% 
+  t() %>% 
+  data.frame() %>% 
+  select(-Middle) %>% 
+  rownames_to_column("taxon") %>% 
+  left_join(res_mod, by=c("taxon")) %>% 
+  mutate(`more in` = ifelse(lfc > 0, "Ashan", "high_road") %>% as.factor()) %>% 
+  pivot_longer(!c(taxon, `more in`, lfc), names_to = "Site", values_to = "abundance") %>% 
+  mutate(abundance = log2(abundance)) %>% 
+  mutate(Site = as.factor(Site)) %>% 
+  ggplot(aes(y=lfc, x=abundance)) + 
+  geom_point(alpha = 0.5) +
+  # geom_smooth(aes(y=value, x=mean, fill=pair, color=pair),
+              # method=lm, 
+              # method.args = list(family = "quasipoisson"), 
+              # se=TRUE) +
+  coord_flip() +
+  theme_bw()
+
+```
+
+## Andronov concept analysis pipeline
+### 1 square
+
+среднее относительная представленность в сайтах по тому растет или нет \
+пояснительная картинка внизу \
+Довольно сильно зафильтровано, т.к. иначе сильно перекошено т.к. средние не работают на таких данных
+
+```{r}
+
+ps.rel  <-  phyloseq::transform_sample_counts(ps.filt, function(x) x / sum(x) * 100)
+# ps.merged.mean <- merge_samples_mean(ps.filt, "Site")
+ps.merged.mean <- merge_samples_mean(ps.rel, "Site")
+
+ps.merged.mean@otu_table %>% 
+  data.frame() %>% 
+  select(-Middle) %>% 
+  mutate(`more in` = ifelse(Ashan > high_road, "Ashan", "high_road") %>% as.factor()) %>% 
+  pivot_longer(!`more in`, names_to = "Site", values_to = "mean") %>% 
+  group_by(`more in`, Site) %>% 
+  summarise(mean_read_count = round(mean(mean), 3))
+
+```
+
+
+
+```{r}
+
+ps.merged.mean@otu_table %>% 
+  data.frame() %>% 
+  select(-Middle) %>% 
+  mutate(`more in` = ifelse(Ashan > high_road, "Ashan", "high_road") %>% as.factor()) %>% 
+  pivot_longer(!`more in`, names_to = "Site", values_to = "mean") %>% 
+  mutate(Label = paste0("increased_in_", `more in`, " -- ", "ASVs_from_", Site) %>% as.factor()) %>% 
+  ggplot(aes(x=mean)) + 
+  geom_density() +
+  theme_bw() +
+  facet_wrap(~Label)
+
+```
+
+То же, но с данными ancom-bc, изменяющиеся филотипы разделены на достоверно/недостоверно меняющиеся. 
+
+```{r, fig.height=6, fig.width=8}
+
+otu_corr <- log_corr_abn %>% 
+  t() %>% 
+  data.frame() %>% 
+  mutate(Site = ps.ff@sam_data$Site) %>% 
+  group_by(Site) %>% 
+  summarise(across(everything(), mean), .groups = 'drop') %>% 
+  pivot_longer(!Site, names_to = "taxon", values_to = "abundance")  
+  # rename(site = Site)
+
+otu_corr %>% 
+  left_join(ancom_ff$res_pair , by=c("taxon")) %>% 
+  filter(Site %in% c("Ashan", "high_road")) %>% 
+  # filter(taxon %in% c("Seq1", "Seq2")) %>% 
+  select(c("Site", "taxon", "lfc_Sitehigh_road", "diff_Sitehigh_road", "abundance")) %>% 
+  mutate(increasing = ifelse(lfc_Sitehigh_road > 0, TRUE, FALSE)) %>% 
+   ggplot(aes(x=increasing, y=abundance)) +
+    # geom_text(aes(label = taxon)) +
+    geom_boxplot(outlier.size = 0, outlier.alpha = 0) +
+    ggbeeswarm::geom_quasirandom(aes(color=diff_Sitehigh_road), size=0.75, alpha=0.7,dodge.width = 0.75) +
+    theme_light() + 
+    scale_color_brewer(palette="Dark2") +
+    labs(title = "Mean", x = "lfc positive", y = "corrected log abundance", color = "Достоверность\n изменения филотипа") +
+    theme(axis.text.x = element_text(angle = 90)) +
+  # ggpubr::stat_pvalue_manual(
+  # stat_test,  label = "{p}", 
+  # tip.length = 0.005, hide.ns = TRUE
+  # ) +
+  facet_wrap(~Site)
+
+```
+
+### 2 log rel
+
+То же, но в виде регрессии
+
+```{r, fig.width=14, fig.height=5, warning=FALSE}
+
+ps.merged.mean@otu_table %>% 
+  data.frame() %>% 
+  select(-Middle) %>% 
+  mutate(lfc = log2(Ashan/high_road)) %>% 
+  mutate(`more in` = ifelse(Ashan > high_road, "Ashan", "high_road") %>% as.factor()) %>% 
+  pivot_longer(!c(`more in`, lfc) , names_to = "Site", values_to = "merged_mean") %>% 
+  mutate(merged_mean = log2(merged_mean)) %>% 
+  mutate(Site = as.factor(Site)) %>% 
+  ggplot(aes(x=merged_mean, 
+             y=lfc, 
+             label=Site, 
+             color=Site)) + 
+  geom_point() +
+  geom_smooth(aes(y=lfc, 
+                  x=merged_mean, 
+                  fill=Site, 
+                  color=Site),
+              method=lm, 
+              se=TRUE) +
+  theme_bw() +
+  facet_wrap(~Site)
+
+```
+
+то же, но с данными ancomBC(менее строгая фильтрацией) \
+lm общая, разделение по группам не влияет
+
+```{r, fig.width=14, fig.height=6}
+
+
+dt <- otu_corr %>% 
+  left_join(lfc, by=c("taxon")) %>% 
+  filter(Site %in% c("Ashan", "high_road")) 
+
+l <- lm(lfc_Sitehigh_road ~ abundance*Site, data=dt) 
+sl <- summary(l)
+p <- sl$coefficients["abundance",4]
+
+lfc <- ancom_ff$res_pair %>% 
+  select(c("taxon", "lfc_Sitehigh_road", "lfc_SiteMiddle", "lfc_SiteMiddle_Sitehigh_road"))
+
+otu_corr %>% 
+  left_join(lfc, by=c("taxon")) %>% 
+  filter(Site %in% c("Ashan", "high_road")) %>% 
+  select(-c("lfc_SiteMiddle", "lfc_SiteMiddle_Sitehigh_road")) %>% 
+  ggplot(aes(x=abundance, 
+             y=lfc_Sitehigh_road, 
+             label=Site, 
+             color=Site)) + 
+  geom_point()  +
+  geom_smooth(aes(y=lfc_Sitehigh_road, x=abundance, fill=Site, color=Site),
+              method=lm, 
+              se=TRUE) +
+  theme_bw() +
+    labs(
+  title = "Ашан -- Шоссе",
+  subtitle = paste0( "lm:\n",
+        " R2adjasted -- " , round(sl$adj.r.squared, 3),
+        "\n abundance p-value ", format.pval(p)
+      )
+) +
+  facet_wrap(~Site)
+
+```
+
+```{r, include=FALSE, eval=FALSE}
+
+ps.filt@otu_table
+
+ps.m <- phyloseq::psmelt(ps.filt)
+
+ps.m <- ps.m %>% 
+  mutate_if(is.character, as.factor) 
+
+ps.m
+
+ps.data.out <- ps.m %>%
+  select(-c("Group", "Bag", "Na.water")) %>% 
+  pivot_wider(names_from = c(Day, Description, Sample), values_from = Abundance, values_fill = 0) 
+
+
+ps.data.out.little.true <- ps.m %>%
+  select(-c("Cl", "Na.water", "K.water", "pH.salt", "pH.water", "C.total", "Electro")) %>% 
+  mutate(Repeat = paste0(Repeat, "_", 
+                         sapply(
+                           str_split(Sample, "\\."), function(x) x[3]))) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  select(-c("Sample", "Site")) %>% 
+  pivot_wider(names_from = Repeat, values_from = Abundance, values_fill = 0) %>% 
+  arrange(OTU)
+
+write.table(ps.data.out.little.true, file = "ps.data.out.little.true", sep = "\t", row.names = FALSE)
+
+```
+
+
+## Packages info
+
+```{r}
+
+sessionInfo()
+
+```
+
+
