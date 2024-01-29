@@ -1,0 +1,274 @@
+---
+title: "gos"
+author: "GrGladkov"
+date: "2024-01-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "~/storage/gos")
+
+```
+
+
+```{r}
+
+setwd('~/storage/gos')
+
+dfkegg <- read_csv("~/storage/gos/kegg_out.csv", )
+dfkegg
+dfkegg <- dfkegg %>% 
+  select(KEGG_ko, site_y, weight) %>%
+  mutate(site_x = paste0(sapply(str_split(site_y, '\\.', 2), function(x) x[[1]])))
+
+dfkegg %>%  ggplot() + 
+    geom_boxplot(aes(x = site_y, y = weight, group = site_y))
+ 
+dfkegg %>%  ggplot(aes(x=weight)) + 
+  geom_density()
+
+```
+
+```{r, fig.width=7, fig.height=6}
+
+
+dram <- read.csv('dram_out_2.csv', row.names = 'site_id')
+          
+euclidean <- function(a, b) sqrt(sum((a - b)^2))
+euclidean2 <- function(a, b) (a/b) * sum(a,b)
+
+
+ht <- function(d, m=5, n=m){
+  # print the head and tail together
+  list(HEAD = head(d,m), TAIL = tail(d,n))
+}
+
+
+
+dram %>% 
+  select(-X) %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  rownames_to_column('тип') %>% 
+  rowwise() %>% 
+  mutate(diff = chrz - pod) %>% 
+  drop_na() %>% 
+  arrange(desc(diff)) %>% 
+  {
+    rbind( head(., 20), tail(., 20) )
+    } %>% 
+  rename('chrz' = 'Чернозём' , 'pod' = 'Дерн.Подз') %>% 
+  pivot_longer(
+    cols = c('Чернозём' , 'Дерн.Подз'), 
+    names_to = "почва",
+    values_to = "отн_предств"
+  ) %>% 
+  arrange(diff) %>% 
+  mutate(тип = fct_reorder(тип, diff)) %>% 
+  ggplot(aes(почва,тип)) + 
+   geom_tile(aes(fill = `отн_предств`)) +
+  scale_fill_gradient2(low="#f3eafa", mid = '#f05c9f', high="#3e1589",  midpoint = 0.6) +
+  geom_text(aes(label = round(отн_предств, 2)), size = 3, alpha = .5) +
+  theme_bw()
+
+  
+df <- dram %>% 
+  select(-X) %>% 
+  t() %>% 
+  as.data.frame()
+
+colSums(df)
+
+```
+
+
+```{r, fig.height=8, fig.width=10}
+
+clust.pyr <- net3$colors[net3$colors %in% c("blue")]
+clust.nonpyr <- net3$colors[! net3$colors %in% c("blue")]
+
+clust.pyr %>% length()
+clust.nonpyr %>% length()
+
+
+ps.rel  <-  phyloseq::transform_sample_counts(ps.syk, function(x) x / sum(x) * 100)
+tx <- ps.anc.f %>% 
+  tax_table() %>% 
+  as.data.frame() %>% 
+  mutate(Group = net3$colors) %>% 
+  add_column(abnd = taxa_sums(ps.rel)[taxa_names(ps.anc.f)]) %>% 
+  mutate(Group = ifelse(Group == "blue", "pyr", "nonpyr"))
+
+treemap <- tx %>% 
+  mutate(Phylum = case_when(Phylum %in% "Pseudomonadota" ~ Class,
+                            !Phylum %in% "Pseudomonadota" ~ Phylum) %>% as.factor()) %>% 
+  select(c("Genus", "Phylum", "Group", "abnd")) %>% 
+  group_by(Genus, Phylum, Group ) %>%
+  mutate(Genus = str_replace_na(Genus, replacement = ' ') %>% as.factor()) %>% 
+  summarise(area = sum(abnd)) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  drop_na() %>% 
+  ggplot(aes(area = area, 
+             subgroup = Phylum, 
+             label = Genus,
+             fill = Group)) +
+  treemapify::geom_treemap() +
+  treemapify::geom_treemap_subgroup_border(color = "white") +
+  treemapify::geom_treemap_subgroup_text(place = "centre", 
+                                         grow = T, 
+                                         alpha = 0.7, 
+                                         colour = "black", 
+                                         fontface = "italic", 
+                                         min.size = 2) +
+  treemapify::geom_treemap_text(colour = "white", 
+                                place = "topleft", 
+                                grow = T, 
+                                reflow = T, 
+                                layout = 'squarified',
+                                min.size = 4) +
+  scale_colour_viridis_d(option = "magma", 
+                         aesthetics = "fill", 
+                         begin = 0.4, 
+                         end = 0.8) +
+  theme(legend.position="bottom") 
+
+ ggsave(treemap, file="~/storage/june_2023/treemap.png", width=10, height=8, dpi = 600)
+
+
+```
+
+
+```{r, fig.height=5.5, fig.width=7}
+
+taxa <- read_csv('taxa_out.csv') %>%
+  select(-`...1`)
+
+
+taxa %>% 
+  group_by(site) %>% 
+  mutate(meandepth = meandepth / sum(meandepth) * 100) %>%   
+  filter(Phylum == 'Proteobacteria') %>% 
+  # mutate(Phylum = case_when(Phylum %in% "Proteobacteria" ~ Class,
+  #                           !Phylum %in% "Proteobacteria" ~ Phylum) %>% as.factor()) %>% 
+  select(c("Genus", "Order", "site", "meandepth")) %>% 
+  group_by(Genus, Order, site ) %>%
+  mutate(Genus = str_replace_na(Genus, replacement = ' ') %>% as.factor()) %>% 
+  summarise(area = sum(meandepth)) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  drop_na() %>% 
+  ggplot(aes(area = area, 
+             subgroup = Order, 
+             label = Genus,
+             fill = site)) +
+  treemapify::geom_treemap() +
+  treemapify::geom_treemap_subgroup_border(color = "white") +
+  treemapify::geom_treemap_subgroup_text(place = "centre", 
+                                         grow = T, 
+                                         alpha = 0.7, 
+                                         colour = "black", 
+                                         fontface = "italic", 
+                                         min.size = 2) +
+  treemapify::geom_treemap_text(colour = "white", 
+                                place = "topleft", 
+                                alpha = 0.6,
+                                grow = T, 
+                                reflow = T, 
+                                layout = 'squarified',
+                                min.size = 4) +
+  scale_colour_viridis_d(option = "magma", 
+                         aesthetics = "fill", 
+                         begin = 0.4, 
+                         end = 0.8) +
+  theme(legend.position="bottom") 
+  
+
+```
+
+```{r, fig.height=5.5, fig.width=7}
+
+
+taxa %>% 
+  group_by(site) %>% 
+  mutate(meandepth = meandepth / sum(meandepth) * 100) %>%   
+  filter(Phylum == 'Actinobacteriota') %>% 
+  # mutate(Phylum = case_when(Phylum %in% "Proteobacteria" ~ Class,
+  #                           !Phylum %in% "Proteobacteria" ~ Phylum) %>% as.factor()) %>% 
+  select(c("Genus", "Order", "site", "meandepth")) %>% 
+  group_by(Genus, Order, site ) %>%
+  mutate(Genus = str_replace_na(Genus, replacement = ' ') %>% as.factor()) %>% 
+  summarise(area = sum(meandepth)) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  drop_na() %>% 
+  ggplot(aes(area = area, 
+             subgroup = Order, 
+             label = Genus,
+             fill = site)) +
+  treemapify::geom_treemap() +
+  treemapify::geom_treemap_subgroup_border(color = "white") +
+  treemapify::geom_treemap_subgroup_text(place = "centre", 
+                                         grow = T, 
+                                         alpha = 0.7, 
+                                         colour = "black", 
+                                         fontface = "italic", 
+                                         min.size = 2) +
+  treemapify::geom_treemap_text(colour = "white", 
+                               alpha = 0.6,
+                                place = "topleft", 
+                                grow = T, 
+                                reflow = T, 
+                                layout = 'squarified',
+                                min.size = 4) +
+  scale_colour_viridis_d(option = "magma", 
+                         aesthetics = "fill", 
+                         begin = 0.4, 
+                         end = 0.8) +
+  theme(legend.position="bottom") 
+  
+  
+
+```
+
+```{r, fig.height=5.5, fig.width=7}
+
+
+taxa %>% 
+  group_by(site) %>% 
+  mutate(meandepth = meandepth / sum(meandepth) * 100) %>%   
+  filter(!Phylum %in% c('Proteobacteria', 'Actinobacteriota')) %>% 
+  # mutate(Phylum = case_when(Phylum %in% "Proteobacteria" ~ Class,
+  #                           !Phylum %in% "Proteobacteria" ~ Phylum) %>% as.factor()) %>% 
+  select(c("Genus", "Phylum", "site", "meandepth")) %>% 
+  group_by(Genus, Phylum, site ) %>%
+  mutate(Genus = str_replace_na(Genus, replacement = ' ') %>% as.factor()) %>% 
+  summarise(area = sum(meandepth)) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  drop_na() %>% 
+  ggplot(aes(area = area, 
+             subgroup = Phylum, 
+             label = Genus,
+             fill = site)) +
+  treemapify::geom_treemap() +
+  treemapify::geom_treemap_subgroup_border(color = "white") +
+  treemapify::geom_treemap_subgroup_text(place = "centre", 
+                                         grow = T, 
+                                         alpha = 0.7, 
+                                         colour = "black", 
+                                         fontface = "italic", 
+                                         min.size = 2) +
+  treemapify::geom_treemap_text(colour = "white",
+                                alpha = 0.6,
+                                place = "topleft", 
+                                grow = T, 
+                                reflow = T, 
+                                layout = 'squarified',
+                                min.size = 4) +
+  scale_colour_viridis_d(option = "magma", 
+                         aesthetics = "fill", 
+                         begin = 0.4, 
+                         end = 0.8) +
+  theme(legend.position="bottom") 
+  
+
+```

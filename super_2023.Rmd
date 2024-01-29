@@ -1,0 +1,511 @@
+---
+title: "Super_2023"
+author: "GrGladkov"
+date: "2023-11-30"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "/home/gladkov/storage/super_2023/")
+
+```
+
+
+```{r}
+
+library(dada2)
+library(ShortRead)
+library(Biostrings)
+library(seqinr)
+library(tidyverse)
+library(fuzzyjoin)
+require(dada2)
+require(Biostrings)
+require(DECIPHER)
+require(phyloseq)
+require(seqinr)
+require(data.table)
+require(metagMisc)
+require(tibble)
+library(phyloseq)
+library(tidyverse)
+library(vegan)
+
+```
+
+```{r}
+
+library(phyloseq)
+library(vegan)
+
+```
+
+
+```{r}
+
+library(orthologr)
+
+```
+
+
+```{r}
+
+path <- "raw/"
+fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
+list.files(path)
+list.files()
+
+```
+
+
+```{r}
+
+fnFs <- sort(list.files(path, pattern = "R1_001.fastq.gz", full.names = TRUE))
+fnRs <- sort(list.files(path, pattern = "R2_001.fastq.gz", full.names = TRUE))
+
+```
+
+super-1 - 300 / 200 rev bad - cutadapt
+supermatrix-2 - 150 vg / 150
+supermatrix-3 - 300 / 200 rev bad
+supermatrix-4 - 300 vg / 200 rev bad
+supermatrix-5 - 300 vg / 200  - cutadapt
+Andronov - 300 vg/200  
+
+
+```{r}
+
+plotQualityProfile("raw/Andronov-SEQ275-37_S336_L001_R2_001.fastq.gz", )
+
+```
+
+cuta
+
+```{r}
+
+plotQualityProfile("raw/supermatrix-2_S248_L001_R2_001.fastq.gz")
+
+```
+
+```{r}
+
+list.files("raw")
+
+```
+
+```{r}
+
+cutadapt <- "/home/gladkov/.conda/envs/pandas/bin/cutadapt"
+system2(cutadapt, args = "--version")
+path.cut <- file.path(path, "cutadapt")
+if(!dir.exists(path.cut)) dir.create(path.cut)
+
+```
+
+# 16S go
+
+```{r}
+
+mult = 10
+mlt = 10
+path_trein_set = "~/storage/somebases/silva_nr99_v138.1_train_set.fa.gz"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.1.fa.gz"
+name_Brief = "nameBrief.txt"
+path <- "/home/gladkov/storage/super_2023/raw"
+active_dir <- "/home/gladkov/storage/super_2023/"
+
+sample.names <- sapply(strsplit(basename("Andronov-SEQ275-37_S336_L001_R1_001.fastq.gz"), "_"), `[`, 1)
+
+filtFs <- file.path(active_dir, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(active_dir, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+out <- filterAndTrim("raw/Andronov-SEQ275-37_S336_L001_R1_001.fastq.gz", 
+                     filtFs,
+                     "raw/Andronov-SEQ275-37_S336_L001_R2_001.fastq.gz", 
+                     filtRs, 
+                     truncLen=c(220,180),
+                     trimLeft=c(19,20),
+                     maxN=0,
+                     truncQ=2, 
+                     maxEE=c(2,5), 
+                     rm.phix=TRUE,
+                     compress=TRUE,
+                     multithread=mult)
+
+errF <- learnErrors(filtFs, multithread=mult)
+errR <- learnErrors(filtRs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult)
+dadaRs <- dada(derepRs, err=errR, multithread=mult)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq)
+
+# write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq, path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+
+
+track <- cbind(out, getN(dadaFs), getN(dadaRs), getN(mergers), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+# write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+# write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+# seqinr::write.fasta(briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+# write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+track
+
+```
+
+
+```{r}
+
+mult = 10
+mlt = 10
+path_trein_set = "~/storage/somebases/silva_nr99_v138.1_train_set.fa.gz"
+path_trein_set_species = "~/storage/somebases/silva_species_assignment_v138.1.fa.gz"
+name_Brief = "nameBrief.txt"
+path <- "/home/gladkov/storage/super_2023/raw"
+active_dir <- "/home/gladkov/storage/super_2023/"
+
+sample.names <- sapply(strsplit(basename("Andronov-SEQ275-37_S336_L001_R1_001.fastq.gz"), "_"), `[`, 1)
+
+filtFs <- file.path(active_dir, "filtered", paste0(sample.names, "_F_filt.fastq.gz"))
+filtRs <- file.path(active_dir, "filtered", paste0(sample.names, "_R_filt.fastq.gz"))
+
+out <- filterAndTrim("raw/Andronov-SEQ275-37_S336_L001_R1_001.fastq.gz", 
+                     filtFs,
+                     "raw/Andronov-SEQ275-37_S336_L001_R2_001.fastq.gz", 
+                     filtRs, 
+                     truncLen=c(220,180),
+                     trimLeft=c(19,20),
+                     maxN=0,
+                     truncQ=2, 
+                     maxEE=c(2,5), 
+                     rm.phix=TRUE,
+                     compress=TRUE,
+                     multithread=mult)
+
+errF <- learnErrors(filtFs, multithread=mult)
+errR <- learnErrors(filtRs, multithread=mult)
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+
+names(derepFs) <- sample.names
+names(derepRs) <- sample.names
+dadaFs <- dada(derepFs, err=errF, multithread=mult)
+dadaRs <- dada(derepRs, err=errR, multithread=mult)
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+seqtab <- makeSequenceTable(mergers)
+getN <- function(x) sum(getUniques(x))
+seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=mult, verbose=TRUE)
+
+briefToSeq <- colnames(seqtab.nochim)
+names(briefToSeq) <- paste0("Seq", seq(ncol(seqtab.nochim))) 
+st.brief <- seqtab.nochim
+colnames(st.brief) <- names(briefToSeq)
+
+# write.table(briefToSeq, file = name_Brief, sep = "\t")
+
+taxa.dada2 <- assignTaxonomy(briefToSeq, path_trein_set , multithread=mult)
+taxa.dada2.species <- assignSpecies(briefToSeq, path_trein_set_species) # maybe use not seqs but brief 
+rownames(taxa.dada2.species) <- rownames(briefToSeq)
+briefToSeq.df <- data.frame(briefToSeq)
+rownames(taxa.dada2.species) <- rownames(briefToSeq.df)
+rownames(taxa.dada2) <- rownames(taxa.dada2.species)
+taxa <- cbind2(taxa.dada2, taxa.dada2.species[,2])
+colnames(taxa)[7] <- "Species"
+
+getN <- function(x) sum(getUniques(x))
+
+track <- cbind(out, getN(dadaFs), getN(dadaRs), getN(mergers), rowSums(seqtab.nochim))
+colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+rownames(track) <- sample.names
+# write.table(track, file = "track.tsv", sep= "\t", col.names = NA, quote=FALSE)
+
+st.brief.t.df <- data.frame(t(st.brief))
+# write.table(st.brief.t.df, file = "otu_table.txt", sep= "\t", col.names = NA, quote=FALSE)
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+# seqinr::write.fasta(briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+# write.table(taxa, file = "taxa.txt", sep= "\t", col.names = NA, quote=FALSE)
+track
+
+briefToSeq.ls
+briefToSeq.df
+st.brief.t.df
+plotErrors(errR, nominalQ = TRUE)
+
+```
+
+```{r}
+
+list.files('raw')
+
+```
+
+
+super-1 - 300 / 200 rev bad - cutadapt
+supermatrix-2 - 150 vg / 150
+supermatrix-3 - 300 / 200 rev bad
+supermatrix-4 - 300 vg / 200 rev bad
+supermatrix-5 - 300 vg / 200  - cutadapt
+Andronov - 300 vg/200  
+
+```{r}
+
+run_list = list(rpo_1=(c("raw/supermatrix-1_S247_L001_R1_001.fastq.gz",
+                         "raw/supermatrix-1_S247_L001_R2_001.fastq.gz", 
+                         "AYCACYTSGGMAACC",
+                         "CCYTCVGGSGTYTCG", 
+                         "rpo_1")),
+                rpo_2=(c("raw/supermatrix-2_S248_L001_R1_001.fastq.gz",
+                         "raw/supermatrix-2_S248_L001_R2_001.fastq.gz",
+                         "TGGACCAGRMSAAYCC","CCYTCVGGSGTYTCG",
+                         "rpo_2")),
+                rpoB=(c("raw/supermatrix-3_S249_L001_R1_001.fastq.gz",
+                        "raw/supermatrix-3_S249_L001_R2_001.fastq.gz",
+                        "GGYTWYGAAGTNCGHGACGTDCA",
+                        "TGACGYTGCATGTTBGMRCCCATMA",
+                        "rpoB")),
+                ureC=(c("raw/supermatrix-4_S250_L001_R1_001.fastq.gz",
+                        "raw/supermatrix-4_S250_L001_R2_001.fastq.gz",
+                        "AARMTSCAYGARGACTGGGG",
+                        "TGRCASACCATSAKCATGTC",
+                        "ureC")),
+                nifH=(c("raw/supermatrix-5_S251_L001_R1_001.fastq.gz",
+                        "raw/supermatrix-5_S251_L001_R2_001.fastq.gz",
+                        "TGYGAYCCSAARGCNGACTC",
+                        "GGCATNGCRAARCCRCCRCA",
+                        "nifH")))
+res_list <- list()
+for (val in run_list){
+  rm(out, dadaFs, dadaRs, mergers, seqtab.nochim, errF, errR)
+  allOrients <- function(primer) {
+    # Create all orientations of the input sequence
+    require(Biostrings)
+    dna <- DNAString(primer)  # The Biostrings works w/ DNAString objects rather than character vectors
+    orients <- c(Forward = dna, Complement = Biostrings::complement(dna), Reverse = reverse(dna), 
+        RevComp = reverseComplement(dna))
+    return(sapply(orients, toString))  # Convert back to character vector
+  }
+  FWD.orients <- allOrients(val[3])
+  REV.orients <- allOrients(val[4])
+  fnFs.filtN <- file.path("raw", "filtN", basename(val[1]))
+  fnRs.filtN <- file.path("raw", "filtN", basename(val[2]))
+  filterAndTrim(val[1], fnFs.filtN, val[2], fnRs.filtN, maxN = 0, multithread = 10)
+  primerHits <- function(primer, fn) {
+    nhits <- vcountPattern(primer, sread(readFastq(fn)), fixed = FALSE)
+    return(sum(nhits > 0))
+    }
+  rbind(FWD.ForwardReads = sapply(FWD.orients, primerHits, fn = fnFs.filtN[[1]]), FWD.ReverseReads = sapply(FWD.orients,
+    primerHits, fn = fnRs.filtN[[1]]), REV.ForwardReads = sapply(REV.orients, primerHits,
+    fn = fnFs.filtN[[1]]), REV.ReverseReads = sapply(REV.orients, primerHits, fn = fnRs.filtN[[1]]))
+  path.cut <- file.path("raw", "cutadapt")
+  if(!dir.exists(path.cut)) dir.create(path.cut)
+  fnFs.cut <- file.path(path.cut, basename(val[1]))
+  
+  fnRs.cut <- file.path(path.cut, basename(val[2]))
+  FWD <- val[3]
+  REV <- val[4]
+  FWD.RC <- dada2:::rc(FWD)
+  REV.RC <- dada2:::rc(REV)
+  R1.flags <- paste("-g", FWD, "-a", REV.RC) 
+  R2.flags <- paste("-G", REV, "-A", FWD.RC)
+  
+  for(i in seq_along(val[1])) {
+  system2(cutadapt, args = c(R1.flags, R2.flags, "-n", 2, # -n 2 required to remove FWD and REV from reads
+                             "-o", fnFs.cut[i], "-p", fnRs.cut[i], # output files
+                             fnFs.filtN[i], fnRs.filtN[i])) # input files
+  }
+  
+  cutFs <- sort(list.files(path.cut, pattern = basename(val[1]), full.names = TRUE))
+  cutRs <- sort(list.files(path.cut, pattern = basename(val[2]), full.names = TRUE))
+  sample.names <- sapply(strsplit(basename(val[1]), "_"), `[`, 1)
+  
+  filtFs <- file.path(path.cut, "filtered", basename(cutFs))
+  filtRs <- file.path(path.cut, "filtered", basename(cutRs))
+
+  out <- filterAndTrim(cutFs, filtFs, cutRs, filtRs, maxN = 0, maxEE = c(4, 8), truncQ = 2, minLen = 50, rm.phix = TRUE, compress = TRUE, multithread = 15)
+  errF <- learnErrors(filtFs, multithread = 15)
+  errR <- learnErrors(filtRs, multithread = 15)
+  derepFs <- derepFastq(filtFs, verbose=TRUE)
+  derepRs <- derepFastq(filtRs, verbose=TRUE)
+  dadaFs <- dada(filtFs, err = errF, multithread = 15)
+  dadaRs <- dada(filtRs, err = errR, multithread = 15)
+  mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs, verbose=TRUE)
+  seqtab <- makeSequenceTable(mergers)
+  seqtab.nochim <- removeBimeraDenovo(seqtab, method="consensus", multithread=15, verbose=TRUE)
+  getN <- function(x) sum(getUniques(x))
+  track <- cbind(out, getN(dadaFs), getN(dadaRs), getN(mergers), rowSums(seqtab.nochim))
+  # track <- cbind(out, map(dadaFs, getN), map(dadaRs, getN), map(mergers, getN), rowSums(seqtab.nochim))
+  colnames(track) <- c("input", "filtered", "denoisedF", "denoisedR", "merged", "nonchim")
+  rownames(track) <- sample.names
+  res_list[[val[5]]] <- list(seqtab=seqtab.nochim, track=track, errF=errF, errR=errR)
+}
+
+track
+class(sample.names)
+
+for (val in run_list){
+  a <- plotQualityProfile(val[1])
+  plot(a)
+}
+
+path.cut <- file.path("raw", "cutadapt")
+list.files(path.cut, pattern = ".fastq.gz", full.names = TRUE)
+file.path(path.cut, "filtered", basename(cutFs))
+
+res_list$rpo_1 %>% 
+  as.data.frame()
+sample.names
+
+cbind(out, getN(dadaFs), getN(dadaRs), getN(mergers), rowSums(seqtab.nochim))
+cbind(out, map(dadaFs, getN), map(dadaRs, getN), map(mergers, getN), map(seqtab.nochim, getN))
+cbind(out, getN(dadaFs), getN(dadaRs), getN(mergers), rowSums(seqtab.nochim))
+
+names(res_list)
+fnFs.filtN
+
+res_list$rpo_1$seqtab %>% 
+  as.data.frame()
+
+res_list_1 <- res_list
+
+sapply(res_list, function(x) x$track) %>% 
+  as.data.frame() %>% 
+  mutate(col = res_list$rpo_1$track %>% 
+  colnames()) %>% 
+  column_to_rownames('col')
+
+sort(list.files(path.cut, pattern = basename(val[1]), full.names = TRUE))
+
+
+plotErrors(res_list$rpo_1$errF, nominalQ = TRUE)
+plotErrors(res_list$rpo_2$errF, nominalQ = TRUE)
+plotErrors(res_list$rpoB$errF, nominalQ = TRUE)
+plotErrors(res_list$ureC$errF, nominalQ = TRUE)
+plotErrors(res_list$nifH$errF, nominalQ = TRUE)
+
+
+plotErrors(res_list$rpo_1$errR, nominalQ = TRUE)
+plotErrors(res_list$rpo_2$errR, nominalQ = TRUE)
+plotErrors(res_list$rpoB$errR, nominalQ = TRUE)
+plotErrors(res_list$ureC$errR, nominalQ = TRUE)
+plotErrors(res_list$nifH$errR, nominalQ = TRUE)
+
+saveRDS(res_list, 'dada_result')
+
+```
+```{r}
+
+
+res_list <-  readRDS('dada_result')
+res_list
+  
+res_list[[1]]$seqtab %>% 
+  as.data.frame() %>% 
+  t %>% 
+  as.data.frame()
+  
+rpo1 <-  res_list[[1]]$seqtab %>% 
+  as.data.frame() %>% 
+  t %>% 
+  as.data.frame()
+
+names <- paste0('rpoB1_', seq(1, length(rownames(rpo1))))
+seqs <- rpo1 %>% rownames() %>% as.list()
+seqs
+
+write.fasta(seqs, names , "rpoB1.fasta", as.string = TRUE)
+
+write_fasta <- function(number, name){
+  rpo1 <-  res_list[[number]]$seqtab %>% 
+    as.data.frame() %>% 
+    t %>% 
+    as.data.frame()
+  names <- paste0(name, '_', seq(1, length(rownames(rpo1))))
+  seqs <- rpo1 %>% rownames() %>% as.list()
+  write.fasta(seqs, names , paste0(name, ".fasta"), as.string = TRUE)
+}
+
+write_fasta(5, 'nifH')
+
+
+write_abundance <- function(number, name){
+  
+  rpo1 <-  res_list[[number]]$seqtab %>% 
+    as.data.frame() %>% 
+    t %>% 
+    as.data.frame()
+
+  names <- paste0(name, '_', seq(1, length(rownames(rpo1))))
+  rpo1$name <- names
+  rpo1 <- rpo1 %>% 
+    rename('V1' = 'abund')
+  rpo1 <- rpo1 %>% 
+    as.tibble() %>% 
+    relocate(name)
+  write_delim(rpo1, paste0(name, ".txt"), delim = ' ')
+  
+}
+
+write_abundance(5, 'nifH')
+
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+briefToSeq.ls <- as.list(briefToSeq.df[,c("briefToSeq")])
+
+
+briefToSeq.names <- as.list(rownames(briefToSeq.df))
+write.fasta( briefToSeq.ls, briefToSeq.names , "rep_seq.fasta", as.string = FALSE)
+
+ape::trans()
+
+```
+
+
+
+```{r}
+
+plotErrors(errF, nominalQ = TRUE)
+
+```
+
+
+
+```{r}
+
+plotErrors(errR, nominalQ = TRUE)
+
+```
+
+

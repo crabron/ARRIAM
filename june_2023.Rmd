@@ -98,7 +98,7 @@ beta_custom_norm_NMDS_elli_w <- function(ps, seed = 7888, normtype="vst", Color=
   library(ggforce)
   
   ps@otu_table[ps@otu_table < 0] <- 0
-  ordination.b <- ordinate(ps, "NMDS", "bray")
+  ordination.b <- ordinate(ps, "NMDS", "bray")t
   mds <- as.data.frame(ordination.b$points)
   p  <-  plot_ordination(ps,
                          ordination.b,
@@ -320,6 +320,17 @@ filter_chrmitnas <- function(physeq){
   
 }
 
+get_list_from_ps <- function(physeq, amaz_fac) {
+  my_keys <- levels(sample_data(physeq)[[amaz_fac]])
+  mylist <- vector(mode="list", length=length(my_keys))
+  names(mylist) <- my_keys
+  for (i in levels(sample_data(physeq)[[amaz_fac]])) { 
+    x <- prune_samples(sample_data(physeq)[[amaz_fac]] %in% i, physeq)
+    x <- prune_taxa(taxa_sums(x) > 0, x)
+    mylist[[i]] <- taxa_names(x)
+  }
+  return(mylist)
+}
 
 lsf.str()
 
@@ -345,9 +356,36 @@ ps.f@tax_table <- ps.f@tax_table@.Data %>%
 ps.syk <- prune_samples(sample_data(ps.f)$Region == "syktyvkar", ps.f)
 ps.syk  <- prune_taxa(taxa_sums(ps.syk) > 0, ps.syk)
 
-ps.syk
+ps.bor <- prune_samples(sample_data(ps.f)$Region == "borovichi", ps.f)
+ps.bor  <- prune_taxa(taxa_sums(ps.bor) > 0, ps.bor)
+
+ps.syk@sam_data <- ps.syk@sam_data %>% 
+  data.frame() %>% 
+  rename('Vbasal' = 'BAS') %>% 
+  sample_data()
 
 
+```
+
+
+
+```{r}
+
+map_mod <- ps.syk@sam_data %>% 
+  data.frame() %>% 
+  mutate(Group = as.factor(c(
+    rep("Oa pyr", 4),
+   rep("Tirr", 4),
+   rep("Qpyr", 4),
+   rep("Oe", 4)
+ ))
+ )
+
+map_mod %>% 
+  select(c("Description", "Group"))
+
+ps.syk@sam_data <- sample_data(map_mod)
+ps.syk@sam_data
 
 
 ```
@@ -375,7 +413,7 @@ beta_custom_norm_PCA_elli_w <- function(ps, seed = 7888, normtype="vst", Color="
                          ordination.b,
                          type="sample",
                          color = Color,
-                         title="PCA - clr-transformed",
+                         title="PCA - clr-transformed -euclidian",
                          # title=NULL,
                          axes = c(1,2) ) + 
     theme_bw() + 
@@ -396,7 +434,7 @@ beta_custom_norm_PCA_elli_w <- function(ps, seed = 7888, normtype="vst", Color="
   return(p)
 }
 
-beta_custom_norm_PCA_elli_w(ps.syk.clr, Group = "Group", Color = "Group") +
+beta_clr <- beta_custom_norm_PCA_elli_w(ps.syk.clr, Group = "Group", Color = "Group") +
   scale_color_manual(values=viridisLite::magma(n = 7, begin = 0, end = 0.8)[-c(7, 3)])
 
 
@@ -455,6 +493,12 @@ beta_custom_norm_NMDS_elli_w(ps.syk, Group = "Group", Color = "Group")
 
 ```
 
+```{r, fig.height=4, fig.width=6}
+
+ggarrange(beta_nmds, beta_clr, ncol=2)
+plot_rich_reads_samlenames_lm(ps.syk, group = "Group", label = "Group")
+
+```
 
 ```{r, fig.height=6, fig.width=6}
 
@@ -468,6 +512,7 @@ beta_custom_norm_PCoA_elli_w <- function(ps, seed = 7888, normtype="vst", Color=
   
   ps@otu_table[ps@otu_table < 0] <- 0
   ordination.b <- ordinate(ps, "PCoA", "bray")
+  # p <- phyloseq::plot_scree(ordination.b) + theme(axis.text.x = element_text(size = 6))
   mds <- as.data.frame(ordination.b$points)
   p  <-  plot_ordination(ps,
                          ordination.b,
@@ -475,9 +520,9 @@ beta_custom_norm_PCoA_elli_w <- function(ps, seed = 7888, normtype="vst", Color=
                          color = Color,
                          title="PCoA - bray - rarefied",
                          # title=NULL,
-                         axes = c(1,2) ) + 
-    theme_bw() + 
-    theme(text = element_text(size = 10)) + 
+                         axes = c(1,2) ) +
+    theme_bw() +
+    theme(text = element_text(size = 10)) +
     geom_point(size = 3) +
     geom_mark_ellipse(aes_string(group = Group, label = Group),
                       label.fontsize = 10,
@@ -486,17 +531,25 @@ beta_custom_norm_PCoA_elli_w <- function(ps, seed = 7888, normtype="vst", Color=
                       con.cap = unit(0.1, "mm"),
                       con.colour='gray') +
     theme(legend.position = "none") +
-    scale_colour_viridis_d(option = "magma", 
-                       aesthetics = "color", 
-                       begin = 0, 
+    scale_colour_viridis_d(option = "magma",
+                       aesthetics = "color",
+                       begin = 0,
                        end = 0.8)
   
   return(p)
 }
 
+beta_rar <- beta_custom_norm_PCoA_elli_w(ps.syk.r, Color="Group", Group="Group")
+
 beta_rar <- beta_custom_norm_PCoA_elli_w(ps.syk.clr, Group = "Group", Color = "Group") +
   scale_color_manual(values=viridisLite::magma(n = 7, begin = 0, end = 0.8)[-c(7, 3)])
 
+ggsave(beta_rar, file="~/storage/june_2023/beta_rar.png", width=6, height=4, dpi = 600)
+beta_rar
+
+
+  ordination.b <- ordinate(ps.syk.r, "PCoA", "bray")
+  phyloseq::plot_scree(ordination.b) + theme(axis.text.x = element_text(size = 6))
 
 ```
 
@@ -504,11 +557,13 @@ beta_rar <- beta_custom_norm_PCoA_elli_w(ps.syk.clr, Group = "Group", Color = "G
 
 ```{r, fig.height=6, fig.width=7}
 
+library(ampvis2)
+
 amp_f2 <- phyloseq_to_ampvis2(ps.syk)
 amp_f2
 ps.syk
 
-amp_heatmap(amp_f2,
+amp_phyla <- amp_heatmap(amp_f2,
             tax_show = 12,
             group_by = "Group",
             tax_aggregate = "Phylum",
@@ -520,17 +575,19 @@ amp_heatmap(amp_f2,
             theme(axis.text.x = element_text(size=14, angle=45, hjust=1.2, vjust=1.2),
               axis.text.y = element_text(size=14)) 
 
+ggsave(amp_phyla, file="~/storage/june_2023/heat_ph.png", width=7, height=6, dpi = 600)
+
 
 ```
 
 
 ```{r, fig.height=10, fig.width=12}
 
-amp_heatmap(amp_f2,
+amp_genus <-amp_heatmap(amp_f2,
             tax_show = 40,
             group_by = "Group",
             tax_aggregate = "Genus",
-            tax_add = "Phylum", 
+            # tax_add = "Phylum", 
             tax_class = "Pseudomonadota",
             normalise=TRUE,
             plot_values_size = 5.5,
@@ -538,6 +595,8 @@ amp_heatmap(amp_f2,
             color_vector = colorspace::lighten(viridis::magma(n = 3, begin = 0.35, direction = -1), 0.2)) +
             theme(axis.text.x = element_text(size=14, angle=45, hjust=1.2, vjust=1.2),
               axis.text.y = element_text(size=14)) 
+
+ggsave(amp_genus, file="~/storage/june_2023/heat_genus.png", width=12, height=10, dpi = 600)
 
 ```
 
@@ -589,7 +648,142 @@ ps.f2@sam_data %>%
 
 ```
 
+```{r}
 
+unregister <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+
+unregister()
+
+```
+
+
+### cca
+
+```{r, fig.height=5, fig.width=6}
+
+library(ggrepel)
+
+# physeq <- ps.clr
+physeq <- ps.syk
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+otus.ps.vegan <- veganifyOTU(physeq)
+rownames(otus.ps.vegan) <- physeq@sam_data$Group
+metadata <- as(sample_data(physeq), "data.frame") 
+
+otus.ps.vegan %>% 
+  data.frame()
+metadata
+
+cca <- vegan::cca(otus.ps.vegan ~  Vbasal + C + pH , data=metadata)
+
+biplot <- as.data.frame(cca$CCA$biplot)
+wa <- as.data.frame(cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot)))) %>% 
+  mutate(
+  Type = rep("biplot", length(rownames(biplot))),
+)
+
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa)))) %>% mutate(
+  Type = metadata$Group,
+)
+
+fdat_amazing <- rbind(biplot, wa) 
+
+fdat_amazing <- fdat_amazing %>%
+  mutate(label_size = ifelse(Score == "biplot", 4.5, 3)) %>% 
+  mutate_if(is.character, as.factor)
+
+list.pe <- summary.cca$cont$importance %>% 
+  as.data.frame() %>% 
+  select(c("CCA1", "CCA2")) %>% 
+  dplyr::slice(2L) %>% 
+  t() %>% 
+  as.vector()
+
+
+
+# kate.ggcca.sites <- function(vare.cca){
+# 
+#   require(tidyverse)
+#   biplot <- as.data.frame(vare.cca$CCA$biplot)
+#   wa <- as.data.frame(vare.cca$CCA$wa)
+# 
+#   biplot <- rownames_to_column(biplot, "Label") %>% 
+#     add_column(Score = rep("biplot", length(rownames(biplot))))
+#   wa <- rownames_to_column(wa, "Label") %>% 
+#     add_column(Score = rep("sites", length(rownames(wa))))
+#   fdat_amazing <- rbind(biplot, wa) 
+#   fdat_amazing <- fdat_amazing %>%
+#     mutate(label_size = ifelse(Score == "biplot", 4.5, 3))
+#  
+#   p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+#     # geom_abline(intercept=seq(-100, 100, 25), slope=1, colour="grey", alpha=0.5) +
+#     # geom_abline(intercept=seq(-100, 100, 25), slope=-1, colour="grey", alpha=0.5) +
+#     geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+#     geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+#     geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), 
+#                mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+#     geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), 
+#                  aes(x = 0, xend = CCA1, y = 0, yend = CCA2),
+#                   size = 0.6, 
+#                  alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+#   geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=fdat_amazing$label_size) + 
+#   xlab(paste0(round(cca$CCA$eig[1], 3)*100, "% CCA1")) +
+#   ylab(paste0(round(cca$CCA$eig[2], 3)*100, "% CCA2")) +
+#   grids(linetype = "dashed") +
+#   theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+#   return(p)
+# }
+# 
+# kate.ggcca.sites(cca)
+
+cca1 <- ggplot(fdat_amazing) + 
+  geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_point(data = fdat_amazing %>% 
+               dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score)))   + 
+  ggforce::geom_mark_ellipse(data = fdat_amazing %>% 
+                                      dplyr::filter(Score == "sites"),
+                             aes(x=CCA1, y=CCA2, group = Type, label = Type, col = 'grey'),
+                  label.fontsize = 13,
+                  label.buffer = unit(0, "mm"),
+                  label.hjust = 0,
+                  label.minwidth = unit(0, "mm"),
+                  con.cap = unit(0, "mm"),
+                  label.margin = margin(t = 0, r = 0, b = 0, l = 0, unit = "pt"),
+                  con.colour='salmon',
+                  label.colour='salmon'
+                  ) + 
+  geom_segment(data = fdat_amazing %>% 
+                 dplyr::filter(Score == "biplot"), 
+               aes(x = 0, xend = CCA1, y = 0, yend = CCA2),
+               size = 0.6, 
+               alpha=0.8, 
+               color = "red",
+               arrow = arrow(angle = 3)) +
+  ggrepel::geom_text_repel(data = fdat_amazing %>% 
+                 dplyr::filter(Score == "biplot"), aes(x=CCA1, y=CCA2, label= Label), size=6, nudge_x=0.07) +
+  xlab(paste0(round(list.pe[1], 3)*100, "% CCA1")) +
+  ylab(paste0(round(list.pe[2], 3)*100, "% CCA2")) +
+  grids(linetype = "dashed") +
+  theme(legend.position = "none", 
+        panel.background = element_rect(fill = "white", colour = "grey50"))
+
+ggsave(cca1, file="~/storage/june_2023/cca1.png", width=6, height=6, dpi = 600)
+
+```
 
 
 ## alpha
@@ -641,7 +835,7 @@ p_a3 <- plot_alpha_w_toc_mod(ps.syk, group="Group", metric="InvSimpson")
 
 p_alpha <- ggpubr::ggarrange(p_a1, p_a2, p_a3, nrow = 1)
 p_alpha
-
+ggsave(p_alpha, file="~/storage/june_2023/alpha.png", width=8, height=4, dpi = 600)
 
 # 
 # ggpubr::annotate_figure(p_alpha, 
@@ -690,6 +884,11 @@ unregister <- function() {
   rm(list=ls(name=env), pos=env)
 }
 
+saveRDS(out.f, "anc")
+list.files()
+# anc <- readRDS("")
+out.f
+
 unregister()
 
 ```
@@ -725,6 +924,7 @@ ps.vst.mod@sam_data <- ps.vst.mod@sam_data %>%
                          ) %>% 
   sample_data()
 
+data3 <- ps.vst.mod@otu_table@.Data %>% 
   as.data.frame()
 
 
@@ -867,7 +1067,7 @@ tx <- ps.anc.f %>%
   add_column(abnd = taxa_sums(ps.rel)[taxa_names(ps.anc.f)]) %>% 
   mutate(Group = ifelse(Group == "blue", "pyr", "nonpyr"))
 
-tx %>% 
+treemap <- tx %>% 
   mutate(Phylum = case_when(Phylum %in% "Pseudomonadota" ~ Class,
                             !Phylum %in% "Pseudomonadota" ~ Phylum) %>% as.factor()) %>% 
   select(c("Genus", "Phylum", "Group", "abnd")) %>% 
@@ -900,12 +1100,20 @@ tx %>%
                          end = 0.8) +
   theme(legend.position="bottom") 
 
- 
+ ggsave(treemap, file="~/storage/june_2023/treemap.png", width=10, height=8, dpi = 600)
 
 
 ```
 
 
+```{r}
+
+ancom_phylum$res_pair %>% 
+  filter(taxon %in% rows_phyl) %>% 
+  select("taxon"|starts_with("p_"))
+
+
+```
 
 
 ```{r, fig.height=8, fig.width=10}
@@ -944,12 +1152,12 @@ ancom_phylum <-  ANCOMBC::ancombc2(data = ps.syk,
   B = 100)
   )
 
-ancom_phylum$res_pair %>% 
+phyl_anc <- ancom_phylum$res_pair %>% 
   filter(taxon %in% rows_phyl) %>% 
   select("taxon"|starts_with("p_")) %>% 
   rename_all(~ stringr::str_replace(., regex("p_Group", ignore_case = TRUE), "")) %>% 
   rename_all(~ stringr::str_replace(., regex("Group", ignore_case = TRUE), "")) %>% 
-  rename_if( !stringr::str_detect(names(.), "_") & !stringr::str_detect(names(.), "taxon"),  ~ paste0(., "_пирогенOPIR")) %>%   reshape2::melt() %>% 
+  rename_if( !stringr::str_detect(names(.), "_") & !stringr::str_detect(names(.), "taxon"),  ~ paste0(., "_Oa pyr")) %>%   reshape2::melt() %>% 
   rstatix::p_format(value, new.col = TRUE, digits = 2, accuracy = 1e-02) %>% 
   mutate(value.format = ifelse(value.format == "1", "", value.format)) %>%
   separate(variable,into=c('Var1', 'Var2'), sep = "_") %>% 
@@ -964,6 +1172,9 @@ ancom_phylum$res_pair %>%
   theme(legend.position = "none",
           axis.title.x=element_blank(),
           axis.title.y=element_blank())
+
+phyl_anc
+ggsave(phyl_anc, file="~/storage/june_2023/phyl_anc.png", width=10, height=8, dpi = 600)
 
 ```
 
@@ -992,11 +1203,1101 @@ ggpubr::ggarrange(beta_nmds, beta_rar)
 ```
 
 
+# Borovichi
+
+```{r}
+
+ps.bor@sam_data
+
+```
+
+
+```{r}
+
+# ps.bor@sam_data <- ps.bor@sam_data %>% 
+#   data.frame() %>% 
+#   mutate(Group = case_when(
+#     Site %in%  "backgound" ~ "background",
+#     Site %in% "haying 30 years" ~ "hayfield_30",
+#     Site %in% "pasture 30 year deposit" ~ "pasture_30",
+#     Site %in% "plaggen" ~ "plaggen",
+#     Site %in% "garden" ~ "garden",
+#     Site %in% "forest 30 year deposit" ~ "forest_30")) %>% 
+#   dplyr::rename(TOC = C) %>% 
+#   # mutate(Region = case_when(type %in% "igan" ~ "polar ural",
+#   #                           type %in% "kavkaz" ~ "caucasus",
+#   #                           type %in% "baranovka" ~ "severnaya zemlya",
+#   #                           type %in% "livingston"  ~ "antarctica")) %>%
+#   # mutate(Cryoconite = case_when((sample_type  == "криоконит") ~ "cryoconite",
+#   #                               (Region  != "caucasus") ~ "cryoconite",
+#   #                               .default = "mud/soil"))  %>% 
+#   mutate_if(is.character, as.factor) %>%
+#   sample_data()
+
+ps.bor@sam_data <- ps.bor@sam_data %>% 
+  data.frame() %>% 
+  mutate(Group = case_when(
+    Site %in%  "backgound" ~ "Mature soil",
+    Site %in% "haying 30 years" ~ "Hayfield",
+    Site %in% "pasture 30 year deposit" ~ "Pasture",
+    Site %in% "plaggen" ~ "Plaggen",
+    Site %in% "garden" ~ "Garden",
+    Site %in% "forest 30 year deposit" ~ "Forest")) %>% 
+  dplyr::rename(TOC = C) %>% 
+  mutate(Group=forcats::fct_relevel(Group, c("Mature soil","Garden", "Forest" ,"Pasture", "Hayfield","Plaggen"))) %>% 
+  # mutate(Region = case_when(type %in% "igan" ~ "polar ural",
+  #                           type %in% "kavkaz" ~ "caucasus",
+  #                           type %in% "baranovka" ~ "severnaya zemlya",
+  #                           type %in% "livingston"  ~ "antarctica")) %>%
+  # mutate(Cryoconite = case_when((sample_type  == "криоконит") ~ "cryoconite",
+  #                               (Region  != "caucasus") ~ "cryoconite",
+  #                               .default = "mud/soil"))  %>% 
+  mutate_if(is.character, as.factor) %>%
+  sample_data()
+
+ps.bor@sam_data$Group
+
+```
+
+```{r, fig.height=6, fig.width=6}
+
+ps.bor.clr <- ps.bor
+syk.bor.otu <- as.data.frame(t(ps.bor.clr@otu_table)) %>% 
+  compositions::clr() %>% 
+  t()
+
+ps.bor.clr@otu_table <-  otu_table(syk.bor.otu, taxa_are_rows = FALSE)
+
+beta_custom_norm_NMDS_elli_w(ps.bor.clr, Group = "Group", Color = "Group")
+
+```
+
+```{r}
+
+plot_rich_reads_samlenames_lm(ps.bor, group = "Group", label = "Group") 
+
+```
+
+### nulls nulls everywhere
+
+```{r, fig.height=8, fig.width=16}
+
+physeq <- ps.bor
+l <- get_list_from_ps(physeq, "Group")
+core <- Reduce(intersect, l)
+length(core)
+ps.core <- prune_taxa(core, ps.bor)
+
+amp.core <- phyloseq_to_ampvis2(ps.core)
+# ps.core.ancm <- prune_taxa(zeros.all, ps.core)
+# amp.core.ancm <- phyloseq_to_ampvis2(ps.core.ancm)
+
+amp_heatmap(amp.core,
+            tax_show = 155,
+            tax_aggregate = "OTU",
+            tax_add = "Genus",
+            normalise=FALSE, plot_values_size = 2, facet_by = "Group",
+            showRemainingTaxa = TRUE)
+
+```
+
+amcom-bc
+
+```{r}
+
+ancom_core <-  ANCOMBC::ancombc2(data = ps.core, 
+  fix_formula = "Group",
+  rand_formula = NULL,
+  p_adj_method = "fdr",
+  pseudo = 0, 
+  pseudo_sens = TRUE,
+  prv_cut = 0.10,
+  s0_perc = 0.05,
+  group = "Group",
+  struc_zero = TRUE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 15, 
+  tax_level = NULL,
+  verbose = TRUE,
+  global = FALSE, 
+  pairwise = FALSE, 
+  dunnet = FALSE, 
+  trend = FALSE,
+  iter_control = list(tol = 1e-2, max_iter = 20, verbose = TRUE),
+  em_control = list(tol = 1e-5, max_iter = 100),
+  lme_control = lme4::lmerControl(),
+  mdfdr_control = list(fwer_ctrl_method = "holm", B = 100),
+  trend_control = list(contrast = list(matrix(c(1, 0, -1, 1),
+    nrow = 2,
+    byrow = TRUE),
+    matrix(c(-1, 0, 1, -1),
+    nrow = 2,
+    byrow = TRUE)),
+   node = list(2, 2),
+   solver = "ECOS",
+  B = 1)
+  )
+
+non_str_otu <- ancom_core$res$taxon
+
+ancom_core$zero_ind 
+
+ancom_core$zero_ind %>%
+  column_to_rownames("taxon") %>% 
+  mutate_all(.funs = function(x) as.integer(as.logical(x))) %>% 
+  as.matrix() %>% 
+  heatmap()
+  
+zeros <- ancom_core$zero_ind %>% 
+  column_to_rownames("taxon") %>% 
+  rowSums() > 0L
+
+zeros
+
+zeros.all <- zeros[zeros == FALSE]
+zeros.all <- names(zeros.all)
+
+zeros.all %>% 
+  length()
+
+zeros.all
+
+ps.cr@tax_table %>% 
+  as.data.frame() %>%
+  rownames_to_column("ID") %>% 
+  filter(ID %in% zeros.all)
+
+
+```
+```{r}
+
+ancom_core <-  ANCOMBC::ancombc2(data = ps.bor, 
+  fix_formula = "Group",
+  rand_formula = NULL,
+  p_adj_method = "fdr",
+  pseudo = 0, 
+  pseudo_sens = TRUE,
+  prv_cut = 0.10,
+  s0_perc = 0.05,
+  group = "Group",
+  struc_zero = TRUE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 15, 
+  tax_level = NULL,
+  verbose = TRUE,
+  global = FALSE, 
+  pairwise = FALSE, 
+  dunnet = FALSE, 
+  trend = FALSE,
+  iter_control = list(tol = 1e-2, max_iter = 20, verbose = TRUE),
+  em_control = list(tol = 1e-5, max_iter = 100),
+  lme_control = lme4::lmerControl(),
+  mdfdr_control = list(fwer_ctrl_method = "holm", B = 100),
+  trend_control = list(contrast = list(matrix(c(1, 0, -1, 1),
+    nrow = 2,
+    byrow = TRUE),
+    matrix(c(-1, 0, 1, -1),
+    nrow = 2,
+    byrow = TRUE)),
+   node = list(2, 2),
+   solver = "ECOS",
+  B = 1)
+  )
+
+non_str_otu <- ancom_core$res$taxon
+
+ancom_core$zero_ind 
+
+ancom_core$zero_ind %>%
+  column_to_rownames("taxon") %>% 
+  mutate_all(.funs = function(x) as.integer(as.logical(x))) %>% 
+  as.matrix() %>% 
+  heatmap()
+  
+zeros <- ancom_core$zero_ind %>% 
+  column_to_rownames("taxon") %>% 
+  rowSums() > 0L
+
+zeros
+
+zeros.all <- zeros[zeros == FALSE]
+zeros.all <- names(zeros.all)
+
+zeros.all %>% 
+  length()
+
+zeros.all
+
+ps.cr@tax_table %>% 
+  as.data.frame() %>%
+  rownames_to_column("ID") %>% 
+  filter(ID %in% zeros.all)
+
+
+```
+
+```{r}
+
+metadata
+
+```
+
+
+```{r}
+
+unregister <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+
+unregister()
+
+```
+
+```{r, fig.height=6, fig.width=7}
+
+library(ggrepel)
+
+# physeq <- ps.clr
+physeq <- ps.bor
+
+veganifyOTU <- function(physeq){
+  require(phyloseq)
+  if(taxa_are_rows(physeq)){physeq <- t(physeq)}
+  return(as(otu_table(physeq), "matrix"))
+}
+
+otus.ps.vegan <- veganifyOTU(physeq)
+rownames(otus.ps.vegan) <- physeq@sam_data$Group
+metadata <- as(sample_data(physeq), "data.frame") 
+
+otus.ps.vegan %>% 
+  data.frame()
+metadata
+
+cca <- vegan::cca(otus.ps.vegan ~  pH + TOC + NH4 + NO3 + P + K + BAS + SIR, data=metadata)
+
+biplot <- as.data.frame(cca$CCA$biplot)
+wa <- as.data.frame(cca$CCA$wa)
+
+biplot <- rownames_to_column(biplot, "Label") %>% 
+  add_column(Score = rep("biplot", length(rownames(biplot)))) %>% 
+  mutate(
+  Type = rep("biplot", length(rownames(biplot))),
+)
+
+wa <- rownames_to_column(wa, "Label") %>% 
+  add_column(Score = rep("sites", length(rownames(wa)))) %>% mutate(
+  Type = metadata$Group,
+)
+
+fdat_amazing <- rbind(biplot, wa) 
+
+fdat_amazing <- fdat_amazing %>%
+  mutate(label_size = ifelse(Score == "biplot", 4.5, 3)) %>% 
+  mutate_if(is.character, as.factor)
+
+list.pe <- summary.cca$cont$importance %>% 
+  as.data.frame() %>% 
+  select(c("CCA1", "CCA2")) %>% 
+  dplyr::slice(2L) %>% 
+  t() %>% 
+  as.vector()
 
 
 
+# kate.ggcca.sites <- function(vare.cca){
+# 
+#   require(tidyverse)
+#   biplot <- as.data.frame(vare.cca$CCA$biplot)
+#   wa <- as.data.frame(vare.cca$CCA$wa)
+# 
+#   biplot <- rownames_to_column(biplot, "Label") %>% 
+#     add_column(Score = rep("biplot", length(rownames(biplot))))
+#   wa <- rownames_to_column(wa, "Label") %>% 
+#     add_column(Score = rep("sites", length(rownames(wa))))
+#   fdat_amazing <- rbind(biplot, wa) 
+#   fdat_amazing <- fdat_amazing %>%
+#     mutate(label_size = ifelse(Score == "biplot", 4.5, 3))
+#  
+#   p <- ggplot(fdat_amazing %>% filter(Score %in% c("sites","biplot"))) + 
+#     # geom_abline(intercept=seq(-100, 100, 25), slope=1, colour="grey", alpha=0.5) +
+#     # geom_abline(intercept=seq(-100, 100, 25), slope=-1, colour="grey", alpha=0.5) +
+#     geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+#     geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+#     geom_point(data = fdat_amazing %>% dplyr::filter(Score == "sites"), 
+#                mapping = aes(x=CCA1, y=CCA2, colour = factor(Score))) + 
+#     geom_segment(data = fdat_amazing %>% dplyr::filter(Score == "biplot"), 
+#                  aes(x = 0, xend = CCA1, y = 0, yend = CCA2),
+#                   size = 0.6, 
+#                  alpha=0.8, color = "red",arrow = arrow(angle = 3)) +
+#   geom_text_repel(aes(x=CCA1, y=CCA2, label= Label),size=fdat_amazing$label_size) + 
+#   xlab(paste0(round(cca$CCA$eig[1], 3)*100, "% CCA1")) +
+#   ylab(paste0(round(cca$CCA$eig[2], 3)*100, "% CCA2")) +
+#   grids(linetype = "dashed") +
+#   theme(legend.position = "none", panel.background = element_rect(fill = "white", colour = "grey50"))
+#   return(p)
+# }
+# 
+# kate.ggcca.sites(cca)
+
+ggplot(fdat_amazing) + 
+  geom_vline(xintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_hline(yintercept = 0, size = 0.75, color = "#737373", alpha=0.5) +
+  geom_point(data = fdat_amazing %>% 
+               dplyr::filter(Score == "sites"), mapping = aes(x=CCA1, y=CCA2, colour = factor(Score)))   + 
+  ggforce::geom_mark_ellipse(data = fdat_amazing %>% 
+                                      dplyr::filter(Score == "sites"),
+                             aes(x=CCA1, y=CCA2, group = Type, label = Type, col = 'grey'),
+                  label.fontsize = 10,
+                  label.buffer = unit(20, "mm"),
+                  label.hjust = 0,
+                  label.minwidth = unit(5, "mm"),
+                  con.cap = unit(0.1, "mm"),
+                  label.margin = margin(t = 0, r = 0, b = 0, l = 0, unit = "pt"),
+                  con.colour='salmon',
+                  label.colour=''
+                  ) + 
+  geom_segment(data = fdat_amazing %>% 
+                 dplyr::filter(Score == "biplot"), 
+               aes(x = 0, xend = CCA1, y = 0, yend = CCA2),
+               size = 0.6, 
+               alpha=0.8, 
+               color = "red",
+               arrow = arrow(angle = 3)) +
+  ggrepel::geom_text_repel(data = fdat_amazing %>% 
+                 dplyr::filter(Score == "biplot"), aes(x=CCA1, y=CCA2, label= Label), size=5, nudge_x=0.15) +
+  xlab(paste0(round(list.pe[1], 3)*100, "% CCA1")) +
+  ylab(paste0(round(list.pe[2], 3)*100, "% CCA2")) +
+  grids(linetype = "dashed") +
+  theme(legend.position = "none", 
+        panel.background = element_rect(fill = "white", colour = "grey50"))
+
+
+```
+
+```{r}
+
+fdat_amazing
+
+```
+
+
+```{r}
+
+summary.cca$cont
+
+```
+
+```{r}
+
+list.pe <- summary.cca$cont$importance %>% 
+  as.data.frame() %>% 
+  select(c("CCA1", "CCA2")) %>% 
+  dplyr::slice(2L) %>% 
+  t() %>% 
+  as.vector()
+
+list.pe
+```
+
+
+```{r}
+
+summary.cca <- summary(cca)
+summary.cca$concont$importance[2][2]
+
+```
+
+
+```{r}
+
+cca$CCA$biplot
+library(vegan)
+package_version("vegan")
+
+```
+
+
+```{r}
+
+alias(cca, names=TRUE)
+
+```
+
+```{r}
+
+p_a1 <-  plot_alpha_w_toc_mod(ps.bor, group="Group", metric="Observed") 
+p_a2 <- plot_alpha_w_toc_mod(ps.bor, group="Group", metric="Shannon") 
+p_a3 <- plot_alpha_w_toc_mod(ps.bor, group="Group", metric="InvSimpson") 
+
+p_alpha <- ggpubr::ggarrange(p_a1, p_a2, p_a3, nrow = 1)
+p_alpha
+
+```
 
 
 
+```{r, fig.width=9, fig.height=9}
 
+library(ggVennDiagram)
+
+plot_vienn <- function(ps, group){
+  physeq <- prune_taxa(taxa_sums(ps) > 0, ps)
+  groups <- levels(sample_data(physeq)[[group]] %>% as.factor())
+  data <- merge_samples(physeq, group) %>% 
+    psmelt() %>% 
+    group_by(Sample, OTU) %>% 
+    summarise(ASVs_abund = list(paste(OTU, 1:sum(Abundance))), Abund = sum(Abundance), .groups='keep') %>% 
+    filter(Abund > 0)
+  
+  asvs <- data %>% select(Sample, OTU) %>% group_by(Sample) %>% summarise(ASVs = list(OTU)) %>% as.list()
+  d1 <- asvs[[2]]
+  names(d1) <- asvs[[1]]
+  d1
+  
+  weighted.asvs <- data %>% select(Sample, ASVs_abund) %>% group_by(Sample) %>% summarise(ASVs = list(unlist(ASVs_abund)))
+  d2 <- weighted.asvs[[2]]
+  names(d2) <- weighted.asvs[[1]]
+  d2
+  
+  
+  list(ggVennDiagram(d1) + ggtitle("ASVs") + scale_fill_distiller(palette = "OrRd", trans = "reverse"),
+       ggVennDiagram(d2) + ggtitle("Reads") + scale_fill_distiller(palette = "OrRd", trans = "reverse"))
+}
+
+plot_vienn(ps.bor, "Group")
+
+```
+```{r}
+
+plot_alpha_w_toc_mod <- function(ps, group, metric) {
+  
+  require(phyloseq)
+  require(ggplot2)
+  
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+  stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+    rstatix::tukey_hsd() %>%
+    filter(p.adj.signif != "ns")
+  y <-  seq(max(er[[metric]]), length=length(stat.test$p.adj), by=max(er[[metric]]/20))
+
+```
+
+
+```{r, fig.height=5.5, fig.width=9}
+
+ps.bor
+ps.f2.al <- ps.bor
+# ps.f2.al@sam_data <- ps.f2.al@sam_data %>% 
+#   data.frame() %>% 
+#   mutate(Group=forcats::fct_relevel(Group, c("Pimpirev","IGAN", "Mush" ,"Garabashi", "Shkelda","Mud", "Soil"))) %>% 
+#   sample_data()
+
+
+plot_alpha_w_toc_mod <- function(ps, group, metric, test="HSD") {
+  
+  require(phyloseq)
+  require(ggplot2)
+  
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+
+  if (test != "HSD"){
+    stat.test <- df_er %>%
+      rstatix::wilcox_test(as.formula(paste0(metric, "~", group)), p.adjust.method = "BH") %>%
+      filter(p.adj.signif != "ns")
+  }
+    else
+    {
+    stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+      rstatix::tukey_hsd() %>%
+      filter(p.adj.signif != "ns")
+  }
+  
+  y <-  seq(max(er[[metric]]), length=length(stat.test$p.adj), by=max(er[[metric]]/20))
+
+  plot_richness(ps_a, x=group, measures=metric, color="Group") + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) +
+    ggpubr::stat_pvalue_manual(
+      stat.test, 
+      label = "p.adj.signif", 
+      y.position = y,
+      tip.length = 0.005, 
+      bracket.nudge.y = 1.5,
+      vjust = 0.6, 
+      size = 3) +
+    theme_light() + 
+        scale_colour_viridis_d(option = "magma", 
+                       aesthetics = "color", 
+                       begin = 0, 
+                       end = 0.8) +
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          legend.position = "None") +
+    labs(y=paste(metric, "index")) 
+}
+
+p_a1 <-  plot_alpha_w_toc_mod(ps.f2.al, group="Group", metric="Observed") 
+p_a2 <- plot_alpha_w_toc_mod(ps.f2.al, group="Group", metric="Shannon") 
+p_a3 <- plot_alpha_w_toc_mod(ps.f2.al, group="Group", metric="InvSimpson") 
+
+p_alpha <- ggpubr::ggarrange(p_a1, p_a2, p_a3, nrow = 1)
+p_alpha
+
+# 
+# ggpubr::annotate_figure(p_alpha, 
+#                         top = text_grob("NMDS - Bray-Curtis", 
+#                                         color = "black", 
+#                                         face = "bold", 
+#                                         size = 12,
+#                                         hjust = 2.45),
+#                fig.lab.pos = "top.left")
+
+```
+
+
+
+```{r}
+metric <- "Shannon"
+group <- "Group"
+ps_a <- ps.bor
+
+ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+
+er <- estimate_richness(ps_a)
+df_er <- cbind(ps_a@sam_data, er)
+df_er <- df_er %>% select(c(group, metric))
+stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+  rstatix::tukey_hsd() %>%
+  filter(p.adj.signif != "ns")
+y <-  seq(max(er[[metric]]), length=length(stat.test$p.adj), by=max(er[[metric]]/20))
+y
+
+stat.test
+y
+
+
+df_er %>%
+  rstatix::wilcox_test(as.formula(paste0(metric, "~", group)), p.adjust.method = "BH") %>%
+  filter(p.adj.signif != "ns")
+
+```
+
+
+```{r, fig.height=5.5, fig.width=9}
+
+plot_alpha_w_toc_mod_evil <- function(ps, group, metric, test="HSD") {
+  
+  require(phyloseq)
+  require(ggplot2)
+  
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+
+  if (test != "HSD"){
+    stat.test <- df_er %>%
+      rstatix::wilcox_test(as.formula(paste0(metric, "~", group)), p.adjust.method = "none") %>%
+      filter(p.adj.signif != "ns")
+  }
+    else
+    {
+    stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+      rstatix::tukey_hsd() %>%
+      filter(p.adj.signif != "ns")
+  }
+  
+  y <-  seq(max(er[[metric]]), length=length(stat.test$p.adj), by=max(er[[metric]]/20))
+
+  plot_richness(ps_a, x=group, measures=metric, color="Group") + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) +
+    ggpubr::stat_pvalue_manual(
+      stat.test, 
+      label = "p.adj.signif", 
+      y.position = y,
+      tip.length = 0.005, 
+      bracket.nudge.y = 1.5,
+      vjust = 0.6, 
+      size = 3) +
+    theme_light() + 
+        scale_colour_viridis_d(option = "magma", 
+                       aesthetics = "color", 
+                       begin = 0, 
+                       end = 0.8) +
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          legend.position = "None") +
+    labs(y=paste(metric, "index")) 
+}
+
+ps_ar <- phyloseq::rarefy_even_depth(ps.bor, rngseed =  1488)
+
+p_a1 <-  plot_alpha_w_toc_mod_evil(ps_ar, group="Group", metric="Observed", test="hui") 
+p_a2 <- plot_alpha_w_toc_mod_evil(ps_ar, group="Group", metric="Shannon", test="hui") 
+p_a3 <- plot_alpha_w_toc_mod_evil(ps_ar, group="Group", metric="InvSimpson", test="hui") 
+
+p_alpha <- ggpubr::ggarrange(p_a1, p_a2, p_a3, nrow = 1)
+p_alpha
+
+```
+```{r, fig.height=5.5, fig.width=9}
+
+ps_ar <- phyloseq::rarefy_even_depth(ps.bor, rngseed =  1488)
+
+p_a1 <-  plot_alpha_w_toc_mod(ps_ar, group="Group", metric="Observed", test="hui") 
+p_a2 <- plot_alpha_w_toc_mod(ps_ar, group="Group", metric="Shannon", test="hui") 
+p_a3 <- plot_alpha_w_toc_mod(ps_ar, group="Group", metric="InvSimpson", test="hui") 
+
+p_alpha <- ggpubr::ggarrange(p_a1, p_a2, p_a3, nrow = 1)
+p_alpha
+
+```
+
+```{r, fig.height=5.5, fig.width=9}
+
+ps_ar <- phyloseq::rarefy_even_depth(ps.bor, rngseed =  1488)
+
+p_a1 <-  plot_alpha_w_toc_mod(ps_ar, group="Group", metric="Observed", test="HSD") 
+p_a2 <- plot_alpha_w_toc_mod(ps_ar, group="Group", metric="Shannon", test="HSD") 
+p_a3 <- plot_alpha_w_toc_mod(ps_ar, group="Group", metric="InvSimpson", test="HSD") 
+
+p_alpha <- ggpubr::ggarrange(p_a1, p_a2, p_a3, nrow = 1)
+p_alpha
+
+```
+
+```{r, fig.height=4, fig.width=6}
+
+library(breakaway)
+library(magrittr)
+
+ps.m <- merge_samples(ps.bor, "Group")
+
+ft <- ps.bor@otu_table@.Data %>% 
+  data.frame() %>% make_frequency_count_table
+
+ft %>% 
+  tail()
+
+
+er <- ft %>% breakaway()
+
+plot(er)
+
+ps.bor %>% sample_data %>% head
+
+res <- breakaway(ps.m)
+summar <- summary(res)
+
+summar
+res
+
+ggplot(summar, aes(x=sample_names, y=estimate)) + 
+  geom_pointrange(aes(ymin=lower, ymax=upper), size =0.8, color="salmon", linetype=2, shape=1) +
+      theme_light()
+
+
+
+```
+
+
+```{r}
+
+plot_alpha_w_toc_mod_amy <- function(ps, group, metric) {
+  
+  require(phyloseq)
+  require(ggplot2)
+  
+  ps_a <- prune_taxa(taxa_sums(ps) > 0, ps)
+  
+  er <- estimate_richness(ps_a)
+  df_er <- cbind(ps_a@sam_data, er)
+  df_er <- df_er %>% select(c(group, metric))
+
+  if (test != "HSD"){
+    stat.test <- df_er %>%
+      rstatix::wilcox_test(as.formula(paste0(metric, "~", group)), p.adjust.method = "none") %>%
+      filter(p.adj.signif != "ns")
+  }
+    else
+    {
+    stat.test <- aov(as.formula(paste0(metric, "~", group)), data = df_er) %>%
+      rstatix::tukey_hsd() %>%
+      filter(p.adj.signif != "ns")
+  }
+  
+  y <-  seq(max(er[[metric]]), length=length(stat.test$p.adj), by=max(er[[metric]]/20))
+
+  plot_richness(ps_a, x=group, measures=metric, color="Group") + 
+    geom_boxplot() +
+    geom_point(size=1.2, alpha=0.3) +
+    ggpubr::stat_pvalue_manual(
+      stat.test, 
+      label = "p.adj.signif", 
+      y.position = y,
+      tip.length = 0.005, 
+      bracket.nudge.y = 1.5,
+      vjust = 0.6, 
+      size = 3) +
+    theme_light() + 
+        scale_colour_viridis_d(option = "magma", 
+                       aesthetics = "color", 
+                       begin = 0, 
+                       end = 0.8) +
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          axis.title.x=element_blank(),
+          axis.title.y=element_blank(),
+          legend.position = "None") +
+    labs(y=paste(metric, "index")) 
+}
+
+ps_ar <- phyloseq::rarefy_even_depth(ps.bor, rngseed =  1488)
+
+p_a1 <-  plot_alpha_w_toc_mod_evil(ps_ar, group="Group", metric="Observed", test="hui") 
+p_a2 <- plot_alpha_w_toc_mod_evil(ps_ar, group="Group", metric="Shannon", test="hui") 
+p_a3 <- plot_alpha_w_toc_mod_evil(ps_ar, group="Group", metric="InvSimpson", test="hui") 
+
+p_alpha <- ggpubr::ggarrange(p_a1, p_a2, p_a3, nrow = 1)
+p_alpha
+
+stat.test
+
+```
+
+
+```{r, fig.height=12, fig.width=12}
+
+
+amp_f2 <- phyloseq_to_ampvis2(ps.bor)
+
+amp_heatmap(amp_f2,
+            tax_show = 40,
+            group_by = "Group",
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            normalise=TRUE,
+            plot_values_size = 4.5,
+            showRemainingTaxa = TRUE,
+            color_vector = colorspace::lighten(viridis::magma(n = 3, begin = 0.35, direction = -1), 0.2)) +
+            theme(axis.text.x = element_text(size=14, angle=45, hjust=0.4),
+              axis.text.y = element_text(size=13)) 
+
+```
+
+```{r, fig.height=7, fig.width=10}
+
+
+amp_f2 <- phyloseq_to_ampvis2(ps.bor)
+
+amp_heatmap(amp_f2,
+            tax_show = 15,
+            group_by = "Group",
+            tax_aggregate = "Phylum",
+            normalise=TRUE,
+            plot_values_size = 4.5,
+            showRemainingTaxa = TRUE, tax_class = "Pseudomonadota",
+            color_vector = colorspace::lighten(viridis::magma(n = 3, begin = 0.35, direction = -1), 0.2)) +
+            theme(axis.text.x = element_text(size=14, angle=45, hjust=0.4),
+              axis.text.y = element_text(size=13)) 
+
+```
+```{r}
+
+amp_f2
+
+library("limma")
+library("clusterProfiler")
+library(edgeR)
+
+```
+### kegg docu
+
+```{r}
+
+dfkegg <- read_csv("~/storage/temp/kegg_df.csv", )
+dfkegg <- dfkegg %>% 
+  select(KEGG_ko, site_y, weight) %>%
+  mutate(site_x = paste0(sapply(str_split(site_y, '\\.', 2), function(x) x[[1]])))
+
+dfkegg %>%  ggplot() + 
+    geom_boxplot(aes(x = site_y, y = weight, group = site_y))
+ 
+dfkegg %>%  ggplot(aes(x=weight)) + 
+  geom_density()
+
+```
+
+
+
+```{r}
+
+dfkegg_wide <- dfkegg %>% 
+  select(KEGG_ko, site_y, weight) %>% 
+  pivot_wider(names_from = site_y, values_from = weight)
+
+dfkegg_wide
+dfkegg_wide <- dfkegg_wide %>% 
+  column_to_rownames("KEGG_ko")
+
+dfkegg_wide <- dfkegg_wide + 1
+dfkegg_wide[is.na(dfkegg_wide)] <- 0
+dfkegg_wide
+
+d0 <- DGEList(dfkegg_wide)
+group <- dfkegg$site_x %>% 
+  unique() %>% 
+  rep(each=3)
+
+plotMDS(y$E, col = as.numeric(group))
+
+```
+
+```{r}
+
+cutoff <- 1
+drop <- which(apply(cpm(d0), 1, max) < cutoff)
+d <- d0[-drop,] 
+
+```
+
+
+
+```{r, fig.height=5, fig.width=6}
+
+plotMDS(y, col = as.numeric(group))
+
+```
+```{r, fig.height=5, fig.width=6}
+
+plotMDS(d, col = as.numeric(group))
+
+```
+
+
+```{r}
+
+
+
+mm <- model.matrix(~0 + group)
+y <- voom(d, mm, lib.size = d$samples$lib.size,  plot = T)
+
+```
+```{r}
+y$E
+```
+```{r}
+
+dt <- d$counts %>% 
+  as.data.frame() %>% 
+  pivot_longer(everything(), names_to = "site", values_to = "values") %>% 
+  mutate(site = as.factor(site))
+
+ggplot(data = dt, aes(x=values, color = site)) + 
+  geom_density()
+
+```
+
+```{r}
+
+y$E %>% 
+  as.data.frame() %>% 
+  pivot_longer(everything(), names_to = "site", values_to = "values") %>% 
+  ggplot(aes(x=values)) + 
+  geom_density()
+
+```
+
+```{r}
+
+fit <- lmFit(y, mm)
+head(coef(fit))
+
+```
+
+```{r}
+
+contr <- makeContrasts((group1 + group2 + group5)/3 - (group3 + group4)/2, levels = colnames(coef(fit)))
+contr
+
+```
+
+
+```{r}
+
+tmp <- contrasts.fit(fit, contr)
+tmp <- eBayes(tmp)
+
+```
+
+```{r}
+
+top.table <- topTable(tmp, sort.by = "P", n = Inf)
+
+less <- top.table %>%
+  filter(logFC < 0) %>% 
+  filter(adj.P.Val < 0.05) %>% 
+  rownames_to_column("KEGG_ko") %>% 
+  select(KEGG_ko) %>% 
+  mutate(id = row_number()) %>% 
+  relocate(id)
+
+write_tsv(less, "less_forest_kegg.csv")
+
+more <- top.table %>%
+  filter(logFC > 0) %>% 
+  filter(adj.P.Val < 0.05) %>% 
+  rownames_to_column("KEGG_ko") %>% 
+  select(KEGG_ko) %>% 
+  mutate(id = row_number()) %>% 
+  relocate(id)
+
+write_tsv(more, "more_forest_kegg.csv")
+
+top.table %>%
+  filter(logFC > 0) %>% 
+  filter(adj.P.Val < 0.05)
+
+top.table %>%
+  filter(logFC > 0) %>% 
+  filter(adj.P.Val < 0.05)
+
+```
+
+
+```{r}
+
+getwd()
+
+```
+
+```{r}
+
+contr1 <- makeContrasts((group1) - (group2 + group3 + group4 + group5)/4, levels = colnames(coef(fit)))
+contr2 <- makeContrasts((group2) - (group3 + group4 + group5 + group1)/4, levels = colnames(coef(fit)))
+contr3 <- makeContrasts((group3) - (group1 + group2 + group4 + group5)/4, levels = colnames(coef(fit)))
+contr4 <- makeContrasts((group4) - (group1 + group2 + group3 + group5)/4, levels = colnames(coef(fit)))
+contr5 <- makeContrasts((group5) - (group1 + group2 + group3 + group4)/4, levels = colnames(coef(fit)))
+
+```
+
+
+```{r}
+
+tmp1 <- contrasts.fit(fit, contr1)
+tmp1 <- eBayes(tmp1)
+
+tmp2 <- contrasts.fit(fit, contr2)
+tmp2 <- eBayes(tmp2)
+
+tmp3 <- contrasts.fit(fit, contr3)
+tmp3 <- eBayes(tmp3)
+
+tmp4 <- contrasts.fit(fit, contr4)
+tmp4 <- eBayes(tmp4)
+
+tmp5 <- contrasts.fit(fit, contr5)
+tmp5 <- eBayes(tmp5)
+
+```
+
+
+
+```{r}
+
+
+
+for (i in seq(1, 5)){
+  top.table <- topTable(get(paste0("tmp", i)), sort.by = "P", n = Inf)
+  
+  less <- top.table %>%
+  filter(logFC < 0) %>% 
+  filter(adj.P.Val < 0.05) %>% 
+  rownames_to_column("KEGG_ko") %>% 
+  select(KEGG_ko) %>% 
+  mutate(id = row_number()) %>% 
+  relocate(id)
+  
+  more <- top.table %>%
+  filter(logFC > 0) %>% 
+  filter(adj.P.Val < 0.05) %>% 
+  rownames_to_column("KEGG_ko") %>% 
+  select(KEGG_ko) %>% 
+  mutate(id = row_number()) %>% 
+  relocate(id)
+  
+  write_tsv(less, paste0(i, "_less_kegg.csv"))
+  write_tsv(more, paste0(i, "_more_kegg.csv"))
+
+}
+
+top.table <- topTable(tmp2, sort.by = "P", n = Inf)
+
+less <- top.table %>%
+  filter(logFC < 0) %>% 
+  filter(adj.P.Val < 0.05) %>% 
+  rownames_to_column("KEGG_ko") %>% 
+  select(KEGG_ko) %>% 
+  mutate(id = row_number()) %>% 
+  relocate(id)
+
+write_tsv(less, "less_forest_kegg.csv")
+
+more <- top.table %>%
+  filter(logFC > 0) %>% 
+  filter(adj.P.Val < 0.05) %>% 
+  rownames_to_column("KEGG_ko") %>% 
+  select(KEGG_ko) %>% 
+  mutate(id = row_number()) %>% 
+  relocate(id)
+
+write_tsv(more, "more_forest_kegg.csv")
+
+
+```
+
+```{r}
+
+dfkegg %>%  ggplot() + 
+    geom_boxplot(aes(x = site_y, y = weight, group = site_y))
+
+```
+
+
+```{r}
+
+y$E %>% 
+  as.data.frame() %>% 
+  pivot_longer(everything(), names_to = "site", values_to = "values") %>% 
+  ggplot() + 
+    geom_boxplot(aes(x = site, y = values))
+
+```
+
+```{r}
+
+dt <- y$E %>% 
+  as.data.frame() %>% 
+  pivot_longer(everything(), names_to = "site", values_to = "values") %>% 
+  mutate(site = as.factor(site))
+
+ggplot(data = dt, aes(x=values, color = site)) + 
+  geom_density()
+
+```
 
