@@ -1,0 +1,1765 @@
+---
+title: "paper"
+author: "GrGladkov"
+date: "2024-02-28"
+output: 
+  html_document:
+    toc: true
+    toc_float: true
+    toc_collapsed: true
+    toc_depth: 5
+    number_sections: true
+    theme: lumen
+    code_folding: hide
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(warning = FALSE, message = FALSE) 
+rmarkdown::find_pandoc(dir = "/home/gladkov/.conda/envs/bi/bin")
+knitr::opts_knit$set(root.dir = "~/storage/cellulolit/paper/")
+options(getClass.msg=FALSE)
+source('~/storage/scripts_git_done/functions.R', local = knitr::knit_global())
+list.files()
+
+```
+
+```{r}
+
+setwd("~/storage/cellulolit/paper/")
+list.files()
+
+```
+
+```{r, eval=FALSE}
+
+color_filt <- function(ps, df){
+  
+      library(tidyverse)
+      library(reshape2)
+      library(gridExtra)
+
+  l = list()
+  for (i in levels(df$module)){
+    message(i)
+    color_name <-  df %>% 
+      filter(module == i) %>% 
+      pull(asv) %>% 
+      unique()
+    ps.col <- prune_taxa(color_name, ps)
+    amp.col <- phyloseq_to_ampvis2(ps.col)
+    heat <- amp_heatmap(amp.col, tax_show = 60, 
+              group_by = "Day", 
+              tax_aggregate = "OTU",
+              tax_add = "Genus", 
+              normalise=FALSE, 
+              showRemainingTaxa = TRUE)
+    
+    ps.rel  <-  phyloseq::transform_sample_counts(ps, function(x) x / sum(x) * 100)
+    ps.rel.col <- prune_taxa(color_name, ps.rel)
+    amp.r <- phyloseq_to_ampvis2(ps.rel.col)
+    heat.rel <- amp_heatmap(amp.r, tax_show = 60, 
+          group_by = "Day", 
+          tax_aggregate = "OTU",
+          tax_add = "Genus", 
+          normalise=FALSE, 
+          showRemainingTaxa = TRUE)
+    
+    tree <- ps.col@phy_tree
+    taxa <- as.data.frame(ps.col@tax_table@.Data)
+    p1 <- ggtree(tree) + 
+              geom_tiplab(size=2, align=TRUE, linesize=.5) +
+              theme_tree2()
+    
+    taxa[taxa == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Allorhizobium"
+    taxa[taxa == "Burkholderia-Caballeronia-Paraburkholderia"] <- "Burkholderia"
+  
+    tx <- taxa %>% 
+      rownames_to_column("id") %>% 
+      mutate(id = factor(id, levels = rev(get_taxa_name(p1)))) %>% 
+      dplyr::select(-c(Kingdom, Species, Order)) %>% 
+      melt(id.var = 'id')
+
+    p2 <- ggplot(tx, aes(variable, id)) + 
+      geom_tile(aes(fill = value), alpha = 0.4) +
+      geom_text(aes(label = value), size = 3) +
+      theme_bw() + 
+      theme(legend.position = "none",
+             axis.ticks.x=element_blank(),
+             axis.text.y=element_blank(),
+             axis.ticks.y=element_blank(),
+             axis.title.x = element_blank(),
+            axis.title.y = element_blank()) 
+
+    p <- ggpubr::ggarrange(p1, p2, widths = c(0.9, 1))
+    l[[i]] <- list("ps" = ps.col, 
+                   "amp" = amp.col,
+                   "heat" = heat,
+                   "heat_rel" = heat.rel,
+                   "tree" = p,
+                   "taxa" = knitr::kable(taxa) %>%
+                      kableExtra::kable_paper() %>%
+                      kableExtra::scroll_box(width ="100%", height = "200px"))
+                    
+  }
+  return(l)
+}
+
+
+```
+
+```{r}
+
+filter_chrmitnas <- function(physeq){
+  ps_object <- physeq 
+  ps_object <- subset_taxa(ps_object, Phylum != "NA")
+  
+  ps_object@tax_table <- ps_object@tax_table %>% 
+    as.data.frame() %>% 
+    mutate_all(~ replace_na(., "unknown")) %>% 
+    as.matrix() %>% 
+    tax_table()
+  
+  ps_object <- subset_taxa(ps_object,
+                           !(Family  == "Mitochondria" | 
+                               Class   == "Chloroplast" | 
+                               Order   == "Chloroplast"))
+
+  ps_object@tax_table <- ps_object@tax_table %>% 
+    as.data.frame() %>% 
+    mutate_all(~ na_if(., "unknown")) %>% 
+    as.matrix() %>% 
+    tax_table()
+  
+  ps.f <- ps_object
+  
+  out_old <- capture.output(physeq)[4] %>%
+    str_extract(regex("([1-9]).*(?= by)"))
+  out_new <- capture.output(ps.f)[4] %>%
+    str_extract(regex("([1-9]).*(?= by)"))
+  message(paste0("old = ", out_old))
+  message(paste0("filtered = ", out_new))
+
+  return(ps.f)
+  
+}
+
+```
+
+## first import and filtration
+
+```{r}
+
+library(readxl)
+library(tidyverse)
+library(phyloseq)
+
+
+otu_table <- read_tsv("16/otu_table.txt") %>% 
+  column_to_rownames("...1")
+
+hue <- otu_table %>% 
+  colnames()
+
+colnames(otu_table) <- unlist(purrr::map(stringr::str_split(hue, "\\.", 3), function(x) paste0(x[[2]], '_' ,x[[3]]))) 
+hue_mod <- colnames(otu_table)
+
+map <- data.frame(
+  ID = hue_mod,
+  Substrate = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(1, 1) %>% as.factor())),
+  Repeat = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(1, 3) %>% as.factor())),
+  Time = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(2, 3) %>% as.double()))
+) %>% column_to_rownames("ID")
+
+otus <- otu_table %>% 
+  as.matrix() %>% 
+  t()
+
+taxa <- read_tsv("16/taxa.txt") %>% 
+  column_to_rownames("...1") %>% 
+  as.matrix()
+
+
+taxa[taxa == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Allorhizobium"
+
+ps <- phyloseq(otu_table(otus, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa))
+
+ps <- merge_phyloseq(ps, refseq(Biostrings::readDNAStringSet("16/rep_seq.fasta")))
+
+ps.f <- filter_chrmitnas(ps)
+
+Biostrings::writeXStringSet(ps.f@refseq, file="16/ref_filt.fasta")
+
+tree_new <- read_tree(treefile="16/tree.nwk")
+
+ps.f@phy_tree <- tree_new
+
+ps.f  <- prune_taxa(taxa_sums(ps.f) > 0, ps.f)
+
+```
+
+
+
+```{r, eval=FALSE}
+
+map <- data.frame(
+  ID = hue_mod,
+  Substrate = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(1, 1) %>% as.factor())),
+  Repeat = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(1, 3) %>% as.factor())),
+  Time = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(2, 3) %>% as.double()))
+) 
+
+```
+
+
+```{r}
+
+ps.f@sam_data <- read_tsv('map_resp.tsv') %>% 
+  column_to_rownames('ID') %>% 
+  sam_data()
+
+ps.f@tax_table <- ps.f@tax_table@.Data %>% 
+  data.frame() %>% 
+  mutate(Phylum = str_replace_all(Phylum, c("Firmicutes" = "Bacillota",
+                                            "Chloroflexi" = "Chloroflexota",
+                                            "Proteobacteria" = "Pseudomonadota",
+                                            "Desulfobacterota" = "Thermodesulfobacteriota",
+                                            "Crenarchaeota" = "Thermoproteota",
+                                            "Cyanobacteria" = "Cyanobacteria"))) %>% 
+  as.matrix() %>% 
+  tax_table()
+
+
+
+```
+
+```{r}
+
+plot_rich_reads_samlenames_lm(ps.f, group = "Repeat", label = "Repeat")
+
+
+```
+
+```{r, fig.height=6, fig.width=6}
+
+
+beta_custom_norm_NMDS_elli_w(ps.f, Group = "Repeat", Color = "Repeat")
+p.beta.16 <- beta_custom_norm_NMDS_elli_w(ps.f, Group = "Repeat", Color = "Repeat")
+
+
+```
+
+```{r, fig.height=4.5, fig.width=10}
+
+p1 <- plot_alpha_w_toc_2(ps.f, group="Repeat", metric="Observed")
+p2 <- plot_alpha_w_toc_2(ps.f, group="Repeat", metric="Shannon")
+p3 <- plot_alpha_w_toc_2(ps.f, group="Repeat", metric="InvSimpson")
+
+p_alpha <- ggpubr::ggarrange(p1, p2, p3, nrow = 1)
+p_alpha
+
+```
+
+```{r}
+
+amp <- phyloseq_to_ampvis2(ps.f)
+amp
+
+```
+
+```{r}
+
+ampvis2::amp_heatmap(amp,
+            tax_show = 22,
+            group_by = "Time",
+            facet_by = "Substrate",
+            tax_aggregate = "Phylum",
+            tax_class = "Proteobacteria",
+            normalise=TRUE,
+            showRemainingTaxa = TRUE)
+
+```
+
+```{r, fig.height=12, fig.width=8}
+
+ampvis2::amp_heatmap(amp %>% ampvis2::amp_filter_samples(Substrate == 'A', normalise = TRUE),
+            tax_show = 60,
+            group_by = "Time",
+            facet_by = "Substrate",
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            normalise=FALSE,
+            plot_values_size = 3, 
+            showRemainingTaxa = TRUE)
+
+```
+
+```{r, fig.height=12, fig.width=8}
+
+ampvis2::amp_heatmap(amp %>% ampvis2::amp_filter_samples(Substrate == 'C', normalise = TRUE),
+            tax_show = 60,
+            group_by = "Time",
+            facet_by = "Substrate",
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            normalise=FALSE,
+            plot_values_size = 3, 
+            showRemainingTaxa = TRUE)
+
+```
+
+```{r}
+
+ps.ff <- phyloseq::filter_taxa(ps.f, function(x) sum(x > 5) > (0.1*length(x)), TRUE)
+
+ps.f.a <- prune_samples(sample_data(ps.f)$Substrate %in% c('A'), ps.f) 
+ps.f.a  <- prune_taxa(taxa_sums(ps.f.a) > 0, ps.f.a)   
+ps.ff.a <- phyloseq::filter_taxa(ps.f.a, function(x) sum(x > 5) > (0.1*length(x)), TRUE)
+ps.fff.a <- phyloseq::filter_taxa(ps.f.a, function(x) sum(x > 10) > (0.2*length(x)), TRUE)
+
+ps.f.c <- prune_samples(sample_data(ps.f)$Substrate %in% c('C'), ps.f) 
+ps.f.c  <- prune_taxa(taxa_sums(ps.f.c) > 0, ps.f.c)   
+ps.ff.c <- phyloseq::filter_taxa(ps.f.c, function(x) sum(x > 5) > (0.1*length(x)), TRUE)
+ps.fff.c <- phyloseq::filter_taxa(ps.f.c, function(x) sum(x > 10) > (0.15*length(x)), TRUE)
+
+ps.f.a <- prune_samples(sample_data(ps.f)$Substrate %in% c('A'), ps.f) 
+ps.f.c <- prune_samples(sample_data(ps.f)$Substrate %in% c('C'), ps.f) 
+
+ps.f.a  <- prune_taxa(taxa_sums(ps.f.a) > 0, ps.f.a)   
+ps.f.c  <- prune_taxa(taxa_sums(ps.f.c) > 0, ps.f.c)   
+
+ps.f2.a <- phyloseq::filter_taxa(ps.f.a, function(x) sum(x > 5) > (0.1*length(x)), TRUE)
+ps.f2.c <- phyloseq::filter_taxa(ps.f.c, function(x) sum(x > 5) > (0.1*length(x)), TRUE)
+
+```
+
+```{r}
+
+ps.anc.a <- readRDS('ps.anc.a')
+ps.anc.c <- readRDS('ps.anc.c')
+
+```
+
+```{r, cache=TRUE, eval=FALSE}
+
+out.f <-  ANCOMBC::ancombc2(data=ps.ff, 
+  fix_formula = "Substrate + Time",
+  prv_cut = 0,
+  p_adj_method = "BH",
+  tax_level = NULL,
+  rand_formula= NULL,
+  pseudo = 0, 
+  pseudo_sens = FALSE,
+  s0_perc = 0.05,
+  group = "Repeat",
+  struc_zero = FALSE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 20, 
+  verbose = TRUE,
+  global = FALSE, 
+  pairwise = FALSE, 
+  dunnet = FALSE, 
+  trend = FALSE
+  )
+
+
+```
+
+```{r,cache=TRUE, eval=FALSE}
+
+out.a <-  ANCOMBC::ancombc2(data=ps.ff.a, 
+  fix_formula = "Time",
+  prv_cut = 0,
+  p_adj_method = "BH",
+  tax_level = NULL,
+  rand_formula= NULL,
+  pseudo = 0, 
+  pseudo_sens = FALSE,
+  s0_perc = 0.05,
+  group = "Repeat",
+  struc_zero = FALSE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 20, 
+  verbose = TRUE,
+  global = FALSE, 
+  pairwise = FALSE, 
+  dunnet = FALSE, 
+  trend = FALSE
+  )
+
+out.c <-  ANCOMBC::ancombc2(data=ps.ff.c, 
+  fix_formula = "Time",
+  prv_cut = 0,
+  p_adj_method = "BH",
+  tax_level = NULL,
+  rand_formula= NULL,
+  pseudo = 0, 
+  pseudo_sens = FALSE,
+  s0_perc = 0.05,
+  group = "Repeat",
+  struc_zero = FALSE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 20, 
+  verbose = TRUE,
+  global = FALSE, 
+  pairwise = FALSE, 
+  dunnet = FALSE, 
+  trend = FALSE
+  )
+
+
+```
+
+```{r, eval=FALSE}
+
+ps.anc.a <- ps.ff.a
+
+samp_frac <-  out.a$samp_frac
+samp_frac[is.na(samp_frac)] <-  0 
+
+log_obs_abn = log(out.a$feature_table + 1)
+
+log_corr_abn = t(t(log_obs_abn) - samp_frac)
+otu_table(ps.anc.a) <- otu_table(t(log_corr_abn), taxa_are_rows = FALSE)
+
+ps.anc.c <- ps.ff.c
+
+samp_frac <-  out.c$samp_frac
+samp_frac[is.na(samp_frac)] <-  0 
+
+log_obs_abn = log(out.c$feature_table + 1)
+
+log_corr_abn = t(t(log_obs_abn) - samp_frac)
+otu_table(ps.anc.c) <- otu_table(t(log_corr_abn), taxa_are_rows = FALSE)
+
+```
+
+```{r, fig.height=5, fig.width=6}
+
+beta_custom_norm_NMDS_elli_w(ps.anc.a, Color = "Repeat", Group = "Repeat")
+beta_custom_norm_NMDS_elli_w(ps.anc.c, Color = "Repeat", Group = "Repeat")
+
+```
+
+```{r}
+
+ps.vst.mod <- ps.anc.a
+# ps.vst.mod@sam_data <- ps.vst.mod@sam_data %>%
+#   data.frame() %>%
+#   rownames_to_column('ID') %>% 
+#   mutate(Repeat = paste0(Repeat, "_", sapply(str_split(row.names(.), '\\.', 3), function(x) x[[3]]))
+#                          ) %>%
+#   sample_data()
+
+data3 <- ps.vst.mod@otu_table@.Data %>% 
+  as.data.frame()
+
+rownames(data3) <- ps.vst.mod@sam_data$Repeat %>% 
+  data.frame() %>% 
+  rownames()
+powers <-  c(seq(from = 1, to=10, by=0.5), seq(from = 11, to=20, by=1))
+unregister <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+
+unregister()
+sft3 <-  WGCNA::pickSoftThreshold(data3, powerVector = powers, verbose = 5, networkType = "signed hybrid")
+
+plot(sft3$fitIndices[,1], -sign(sft3$fitIndices[,3])*sft3$fitIndices[,2], xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n", main = paste("Scale independence"))
+text(sft3$fitIndices[,1], -sign(sft3$fitIndices[,3])*sft3$fitIndices[,2], labels=powers,cex=0.9,col="red")
+abline(h=0.9,col="salmon")
+
+```
+
+```{r}
+
+library(DESeq2)
+library(WGCNA)
+
+
+
+ps.vst.a <- ps_vst(ps.ff.a, factor = 'Time')
+ps.vst.c <- ps_vst(ps.ff.c, factor = 'Time')
+ps.vst.mod <- ps.anc.c
+ps.vst.mod <- ps.vst.c
+# ps.vst.mod@sam_data <- ps.vst.mod@sam_data %>%
+#   data.frame() %>%
+#   rownames_to_column('ID') %>% 
+#   mutate(Repeat = paste0(Repeat, "_", sapply(str_split(row.names(.), '\\.', 3), function(x) x[[3]]))
+#                          ) %>%
+#   sample_data()
+
+data3 <- ps.vst.mod@otu_table@.Data %>% 
+  as.data.frame()
+
+rownames(data3) <- ps.vst.mod@sam_data$Repeat %>% 
+  data.frame() %>% 
+  rownames()
+powers <-  c(seq(from = 1, to=10, by=0.5), seq(from = 11, to=20, by=1))
+unregister <- function() {
+  env <- foreach:::.foreachGlobals
+  rm(list=ls(name=env), pos=env)
+}
+
+unregister()
+sft3 <-  pickSoftThreshold(data3, powerVector = powers, verbose = 5, networkType = "signed")
+
+plot(sft3$fitIndices[,1], -sign(sft3$fitIndices[,3])*sft3$fitIndices[,2], xlab="Soft Threshold (power)",ylab="Scale Free Topology Model Fit,signed R^2",type="n", main = paste("Scale independence"))
+text(sft3$fitIndices[,1], -sign(sft3$fitIndices[,3])*sft3$fitIndices[,2], labels=powers,cex=0.9,col="red")
+abline(h=0.9,col="salmon")
+
+```
+
+```{r}
+
+detachAllPackages()
+library(WGCNA)
+
+net3 <- WGCNA::blockwiseModules(data3,
+                          power=4.5,
+                          TOMType="signed",
+                          networkType="signed",
+                          nThreads=15)
+
+library(phyloseq)
+library(tidyverse)
+library(ggpubr)
+library(ampvis2)
+library(heatmaply)
+library(WGCNA)
+library(phyloseq)
+library(ggtree)
+library(tidyverse)
+
+mergedColors2 <-  WGCNA::labels2colors(net3$colors, colorSeq = c("pink","yellow","brown", "turquoise", "magenta","salmon", "green", "blue", "red" , "tan","greenyellow","purple" , "cyan","black", "gray"))
+
+plotDendroAndColors(
+  net3$dendrograms[[1]],
+  mergedColors2[net3$blockGenes[[1]]],
+  "Module colors",
+  dendroLabels = FALSE,
+  hang = 0.03,
+  addGuide = TRUE,
+  guideHang = 0.05)
+
+
+net3$colors %>% unique()
+net.w.a <- net3
+
+```
+
+```{r}
+
+net3$colors %>% unique() %>% paste0(',') 
+
+```
+
+```{r, eval=FALSE}
+
+module_df <- data.frame(
+  gene_id = names(net3$colors),
+  colors = labels2colors(net3$colors)
+)
+
+modules_of_interest = c("pink","yellow","brown", "turquoise", "magenta","salmon", "green", "blue", "red" , "tan","greenyellow","purple" , "cyan","black")
+
+mergedColors2 <-  WGCNA::labels2colors(net3$colors, colorSeq = c("pink","yellow","brown", "turquoise", "magenta","salmon", "green", "blue", "red" , "tan","greenyellow","purple" , "cyan","black", "gray"))
+
+genes_of_interest = module_df %>%
+  subset( "green" %in% modules_of_interest)
+
+expr_of_interest = expr_normalized[genes_of_interest$gene_id,]
+
+TOM = TOMsimilarityFromExpr(t(expr_of_interest),
+                            power = picked_power)
+
+modTOM = net3[inModule, inModule]
+exportNetworkToCytoscape(net3)
+
+
+```
+
+```{r, eval=FALSE}
+
+module_df <- data.frame(
+  gene_id = names(net3$colors),
+  colors = labels2colors(net3$colors)
+)
+
+modules_of_interest = c("pink","yellow","brown", "turquoise", "magenta","salmon", "green", "blue", "red" , "tan","greenyellow","purple" , "cyan","black")
+
+mergedColors2 <-  WGCNA::labels2colors(net3$colors, colorSeq = c("pink","yellow","brown", "turquoise", "magenta","salmon", "green", "blue", "red" , "tan","greenyellow","purple" , "cyan","black", "gray"))
+
+net.1 = blockwiseModules(data3,
+                        power=5.5,
+                         maxBlockSize = 10000, deepSplit = 2,
+                         minModuleSize = 10,
+                         saveTOMs = FALSE,
+                         verbose = F)
+library(RNAseqDE)
+library(RCy3)
+library(hdWGCNA)
+library(visNetwork)
+
+ig <- wgcna2igraph(net.1, 
+                   data3, 
+                   modules2plot=modules_of_interest,
+                   colors2plot=modules_of_interest, 
+                   adjacency.threshold = 0.5, adj.power = 5.5)
+ig
+
+l <- layout_randomly(ig)
+plot(ig, layout = l)
+
+visNetwork::visNetwork(ig)
+
+data <- visNetwork::toVisNetworkData(ig)
+data
+visNetwork::visNetwork(nodes = data$nodes, edges = data$edges) %>% 
+  visNetwork::visLayout(randomSeed = 123) %>% 
+  visPhysics(solver = "forceAtlas2Based", 
+            forceAtlas2Based = list(gravitationalConstant = -100))
+
+visNetwork::visIgraph(ig, layout = "layout_nicely", 
+                      randomSeed = 123) %>% visNodes(size = 120)
+
+
+?visIgraph
+?wgcna2igraph
+
+```
+
+```{r}
+
+modules_of_interest = mergedColors2 %>% 
+  unique()
+
+module_df <- data.frame(
+  asv = names(net3$colors),
+  colors = mergedColors2
+)
+
+# module_df[module_df == "yellow"] <- "salmon"
+
+submod <-  module_df %>%
+  subset(colors %in% modules_of_interest)
+
+row.names(module_df) = module_df$asv
+
+subexpr = as.data.frame(t(data3))[submod$asv,]
+
+submod_df <- data.frame(subexpr) %>%
+  mutate(
+    asv = row.names(.)
+  ) %>%
+  pivot_longer(-asv) %>%
+  mutate(
+    module = module_df[asv,]$colors
+  )
+
+submod_df <- submod_df %>% 
+  mutate(name = gsub("\\_.*","",submod_df$name)) %>% 
+  group_by(name, asv) %>% 
+  summarise(value = mean(value), asv = asv, module = module) %>% 
+  relocate(c(asv, name, value, module)) %>% 
+  ungroup() %>% 
+  mutate(module = as.factor(module))
+
+p <- submod_df %>% 
+  ggplot(., aes(x=name, y=value, group=asv)) +
+  geom_line(aes(color = module),
+            alpha = 0.2) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 90),
+    legend.position = "none") +
+  facet_grid(rows = vars(module)) +
+  labs(x = "day",
+       y = "normalized abundance")
+
+p + scale_color_manual(values = levels(submod_df$module))
+
+```
+
+```{r}
+
+data_in <- data3
+
+```
+
+## its
+
+```{r}
+
+library(readxl)
+library(tidyverse)
+library(phyloseq)
+
+
+otu_table <- read_tsv("its/otu_table.txt") %>% 
+  column_to_rownames("...1")
+
+hue <- otu_table %>% 
+  colnames()
+
+colnames(otu_table) <- unlist(purrr::map(stringr::str_split(hue, "\\.", 3), function(x) paste0(x[[2]], '_' ,x[[3]]))) 
+hue_mod <- colnames(otu_table)
+
+map <- data.frame(
+  ID = hue_mod,
+  Substrate = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(1, 1) %>% as.factor())),
+  Repeat = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(1, 3) %>% as.factor())),
+  Time = unlist(purrr::map(stringr::str_split(hue_mod, "\\_", 3), function(x) x[[2]] %>% substring(2, 3) %>% as.double()))
+) %>% column_to_rownames("ID")
+
+otus <- otu_table %>% 
+  as.matrix() %>% 
+  t()
+
+taxa <- read_tsv("its/taxa.txt") %>% 
+  column_to_rownames("...1") %>% 
+  as.matrix()
+
+
+taxa[taxa == "Allorhizobium-Neorhizobium-Pararhizobium-Rhizobium"] <- "Allorhizobium"
+
+
+psits <- phyloseq(otu_table(otus, taxa_are_rows=FALSE), 
+               sample_data(map),
+               tax_table(taxa))
+
+psits <- merge_phyloseq(psits, refseq(Biostrings::readDNAStringSet("its/rep_seq.fasta")))
+
+psits.f <- filter_chrmitnas(psits)
+
+Biostrings::writeXStringSet(psits.f@refseq, file="its/ref_filt_its.fasta")
+
+```
+
+```{r}
+
+tree_new <- read_tree(treefile="its/al_its.fasta.contree")
+psits.f@phy_tree <- tree_new
+sample_names(psits.f)
+
+```
+
+```{r}
+
+psits.f
+plot_rich_reads_samlenames_lm(psits.f, 'Repeat')
+psits.f <- prune_samples(sampleNames(psits.f) != 'its2_C14.4', psits.f)
+plot_rich_reads_samlenames_lm(psits.f, 'Repeat')
+
+
+
+```
+
+```{r, fig.height=6, fig.width=6}
+
+beta_custom_norm_NMDS_elli_w(psits.f, Group = "Repeat", Color = "Repeat")
+p.beta.its <- beta_custom_norm_NMDS_elli_w(psits.f, Group = "Repeat", Color = "Repeat")
+
+```
+
+```{r}
+
+ampits <- phyloseq_to_ampvis2(psits.f)
+ampits
+
+```
+
+```{r, fig.height=7, fig.width=10}
+
+amp_heatmap(ampits,
+            tax_show = 40,
+            group_by = "Time",
+            facet_by = "Substrate",
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            normalise=TRUE,
+            showRemainingTaxa = TRUE)
+
+```
+
+```{r, fig.height=7, fig.width=10}
+
+ampvis2::amp_heatmap(ampits,
+            tax_show = 30,
+            group_by = "Time",
+            facet_by = "Substrate",
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            normalise=TRUE,
+            showRemainingTaxa = TRUE)
+
+```
+
+```{r, fig.height=4.5, fig.width=10}
+
+
+p1 <- plot_alpha_w_toc_2(psits.f, group="Repeat", metric="Observed")
+p2 <- plot_alpha_w_toc_2(psits.f, group="Repeat", metric="Shannon")
+p3 <- plot_alpha_w_toc_2(psits.f, group="Repeat", metric="InvSimpson")
+
+p_alpha <- ggpubr::ggarrange(p1, p2, p3, nrow = 1)
+p_alpha
+
+
+```
+
+## Spirec Easy
+
+```{r}
+
+library(SpiecEasi)
+library(phyloseq)
+library(igraph)
+
+```
+
+### import big objects for network
+
+```{r}
+
+# ps.f <- readRDS('ps.f')
+netf.a <- readRDS('netf.a')
+netf.c <- readRDS('netf.c')
+netfull.a <- readRDS('netfull.a')
+netfull.c <- readRDS('netfull.c')
+net.a <- readRDS('net.a')
+net.c <- readRDS('net.c')
+
+```
+
+```{r}
+
+otu.c <- ps.ff@otu_table %>% t() %>% as.data.frame() %>% t()
+tax.c <- as.data.frame(tax_table(ps.ff)@.Data)
+
+```
+
+```{r, eval=FALSE}
+
+set.seed(1244)
+net.a <- spiec.easi(ps.ff.a, method='mb', icov.select.params=list(rep.num=100))
+net.c <- spiec.easi(ps.ff.c, method='mb', icov.select.params=list(rep.num=100))
+
+```
+
+## Saving chunk
+
+```{r, eval=FALSE}
+
+saveRDS(net.a, 'net.a')
+saveRDS(net.c, 'net.c')
+
+saveRDS(netf.a, 'netf.a')
+saveRDS(netf.c, 'netf.c')
+
+saveRDS(net, 'netf.a')
+saveRDS(netf.c, 'netf.c')
+
+saveRDS(netf.a, 'netf.a')
+saveRDS(netf.c, 'netf.c')
+
+saveRDS(ps.anc.a, 'ps.anc.a')
+saveRDS(ps.anc.c, 'ps.anc.c')
+
+saveRDS(ps.f, 'ps.f')
+
+list.files()
+
+```
+
+```{r, eval=FALSE}
+
+netf.a <- spiec.easi(ps.fff.a, method='mb', pulsar.params=list(rep.num=100))
+netf.c <- spiec.easi(ps.fff.c, method='mb', pulsar.params=list(rep.num=100))
+
+```
+
+```{r}
+
+ig2.a <- adj2igraph(getRefit(netf.a),  vertex.attr=list(name=taxa_names(ps.fff.a)))
+plot_network(ig2.a, ps.fff.a, type='taxa', color="Phylum")
+
+```
+
+```{r}
+
+ig2.c <- adj2igraph(getRefit(netf.c),  vertex.attr=list(name=taxa_names(ps.fff.c)))
+plot_network(ig2.c, ps.fff.c, type='taxa', color="Phylum")
+
+```
+
+```{r}
+
+ps.fff.c@tax_table %>% 
+  data.frame() %>% 
+  rownames_to_column('ID') %>% 
+  filter(ID == "Seq558")
+
+```
+
+```{r}
+
+a <- degree.distribution(ig2.a)
+b <- degree.distribution(ig2.c)
+plot(0:(length(b)-1), b, ylim=c(0,.35), type='b', 
+      ylab="Frequency", xlab="Degree", main="Degree Distributions")
+
+
+modules.a <- cluster_fast_greedy(ig2.a)
+modules.c <- cluster_fast_greedy(ig2.c)
+
+print(modules.a)
+print(modules.c)
+
+list(modularity(modules.a),
+  modularity(modules.c))
+
+```
+
+```{r}
+
+ig2.c.mod <- ig2.c
+V(ig2.c.mod)$color <-  modules.c$membership
+plot(ig2.c.mod, col = modules.c, vertex.size = 4, vertex.label = NA)
+
+ps.ff.c@tax_table@.Data %>% 
+  data.frame() %>% 
+  rownames_to_column('name') %>% 
+  select(c('name', 'Phylum')) %>% 
+  write_tsv('ph_c.tsv')
+
+class(modules.a)
+membership(modules.a) %>%  head()
+membership(modules.c) %>%  head()
+sizes(modules.a)
+# igraph::compare(modules.a, modules.c,  method = "split.join")
+
+
+```
+
+```{r}
+
+ig2.a.mod <- ig2.a
+V(ig2.a.mod)$color <-  modules.a$membership
+plot(ig2.a.mod, col = modules.a, vertex.size = 4, vertex.label = NA)
+
+
+```
+
+```{r, eval=FALSE}
+
+write_graph(
+  ig.a,
+  'net_a.graphml',
+  format = c("graphml"))
+
+write_graph(
+  ig.c,
+  'net_c.graphml',
+  format = c("graphml"))
+
+write_graph(
+  ig.a,
+  'net_a.gml',
+  format = c("gml"))
+
+write_graph(
+  ig.c,
+  'net_c.gml',
+  format = c("gml"))
+
+write_graph(
+  ig2.a,
+  'net2_a.gml',
+  format = c("gml"))
+
+write_graph(
+  ig2.c,
+  'net2_c.gml',
+  format = c("gml"))
+
+
+```
+
+```{r}
+
+ig.a <- adj2igraph(getRefit(net.a),  vertex.attr=list(name=taxa_names(ps.ff.a)))
+ig.c <- adj2igraph(getRefit(net.c),  vertex.attr=list(name=taxa_names(ps.ff.c)))
+
+a <- degree.distribution(ig2.a)
+b <- degree.distribution(ig2.c)
+plot(0:(length(b)-1), b, ylim=c(0,.35), type='b', 
+      ylab="Frequency", xlab="Degree", main="Degree Distributions")
+
+mod.a <- cluster_fast_greedy(ig.a)
+mod.c <- cluster_fast_greedy(ig.c)
+
+print(modules.a)
+print(modules.c)
+
+list(modularity(modules.a),
+  modularity(modules.c))
+
+ig.a.mod <- ig.a
+V(ig.a.mod)$color <-  mod.a$membership
+plot(ig.a.mod, col = modules.a, vertex.size = 4, vertex.label = NA)
+
+
+```
+
+```{r}
+
+ig.c.mod <- ig.c
+V(ig.c.mod)$color <-  mod.c$membership
+plot(ig.c.mod, col = modules.c, vertex.size = 4, vertex.label = NA)
+
+```
+
+```{r}
+
+ig.c.mod <- ig.c
+V(ig.c.mod)$color <-  mod.c$membership
+plot(ig.c.mod, col = modules.c, vertex.size = 4, vertex.label = NA)
+groups.c <- data.frame('ID' = mod.c$names, 'Group' = mod.c$membership)
+
+id.7 <- ps.ff.c@tax_table %>% 
+  data.frame() %>% 
+  rownames_to_column('ID') %>% 
+  right_join(groups.c) %>% 
+  filter(Group %in% c('7')) %>% 
+  pull('ID')
+
+```
+
+```{r,  fig.height= 13, fig.width=10}
+
+amp.ff.c <- phyloseq_to_ampvis2(ps.ff.c)
+amp.ff.c.7 <- ampvis2::amp_filter_taxa(amp.ff.c, tax_vector = id.7, normalise = TRUE)
+
+
+amp_heatmap(amp.ff.c.7,
+            tax_show = 100,
+            tax_aggregate = "Genus",
+            tax_add = "Phylum",
+            group_by = "Time",
+            plot_values_size = 4,
+            showRemainingTaxa = TRUE)
+
+```
+
+# more
+
+```{r, eval=FALSE}
+
+library(SpiecEasi)
+library(igraph)
+
+```
+
+
+```{r, eval=FALSE}
+
+netfull.a <- spiec.easi(ps.f2.a, method='mb', pulsar.params=list(rep.num=500))
+netfull.c <- spiec.easi(ps.f2.c, method='mb', pulsar.params=list(rep.num=500))
+saveRDS(netfull.a, 'netfull.a')
+saveRDS(netfull.c, 'netfull.c')
+
+
+```
+
+```{r}
+
+netfull.a
+netfull.c
+
+```
+
+```{r}
+
+igfull.a <- adj2igraph(getRefit(netfull.a), vertex.attr=list(name=taxa_names(ps.f2.a)))
+igfull.c <- adj2igraph(getRefit(netfull.c), vertex.attr=list(name=taxa_names(ps.f2.c)))
+
+modfull.a <- cluster_fast_greedy(igfull.a)
+modfull.c <- cluster_fast_greedy(igfull.c)
+
+print(modfull.a)
+print(modfull.c)
+
+ig.a.mod <- ig.a
+V(ig.a.mod)$color <-  mod.a$membership
+plot(ig.a.mod, col = modules.a, vertex.size = 4, vertex.label = NA)
+
+ig.a.mod <- igfull.a
+V(ig.a.mod)$color <-  modfull.a$membership
+plot(ig.a.mod, col = modfull.a, vertex.size = 4, vertex.label = NA)
+
+
+```
+
+```{r}
+
+ig.c.mod <- igfull.c
+V(ig.c.mod)$color <-  modfull.c$membership
+plot(ig.c.mod, col = modfull.c, vertex.size = 4, vertex.label = NA)
+
+```
+
+```{r}
+
+library(GGally)
+# library(ggnet)
+
+pl_pal <- viridis::turbo(n = 9)    
+
+ggnet2(ig.a.mod, 
+       node.color = "color", 
+       label = TRUE, node.size = "nodesize", 
+       label.size = 2) + 
+  guides(color=guide_legend(title="color"), size = FALSE)  + 
+  scale_color_manual(values = pl_pal)
+
+```
+
+```{r}
+
+groups.c
+
+```
+
+```{r,  fig.height= 13, fig.width=10}
+
+groups.c <- data.frame('ID' = modfull.c$names, 'Group' = modfull.c$membership)
+groups.a <- data.frame('ID' = modfull.a$names, 'Group' = modfull.a$membership)
+
+id.7 <- ps.f2.c@tax_table %>% 
+  data.frame() %>% 
+  rownames_to_column('ID') %>% 
+  right_join(groups.c) %>% 
+  filter(Group %in% c('7')) %>% 
+  pull('ID')
+
+amp.ff.c <- phyloseq_to_ampvis2(ps.f2.c)
+amp.ff.c.7 <- ampvis2::amp_filter_taxa(amp.ff.c, tax_vector = id.7, normalise = TRUE)
+
+
+amp_heatmap(amp.ff.c.7,
+            tax_show = 100,
+            tax_aggregate = "OTU",
+            tax_add = "Genus",
+            group_by = "Time",
+            plot_values_size = 4,
+            showRemainingTaxa = TRUE, normalise = FALSE)
+
+```
+
+```{r}
+
+left_join(groups.a, ps.f2.a@tax_table@.Data %>% data.frame() %>% rownames_to_column('ID')) 
+groups.c %>% head()
+
+```
+
+```{r}
+
+ig.a.mod <- igfull.a
+V(ig.a.mod)$color <-  modfull.a$membership
+
+ggnet2(ig.a.mod, node.color = "color", label = TRUE, node.size = "nodesize", label.size = 2) + 
+  guides(color=guide_legend(title="color"), size = FALSE)  + 
+  scale_color_manual(values = pl_pal)
+
+```
+
+```{r,  fig.height= 13, fig.width=10}
+
+groups.a <- data.frame('ID' = modfull.a$names, 'Group' = modfull.a$membership)
+
+id.5 <- ps.f2.a@tax_table %>% 
+  data.frame() %>% 
+  rownames_to_column('ID') %>% 
+  right_join(groups.a) %>% 
+  filter(Group %in% c('4')) %>% 
+  pull('ID')
+
+amp.ff.a <- phyloseq_to_ampvis2(ps.f2.a)
+amp.ff.a.5 <- ampvis2::amp_filter_taxa(amp.ff.a, tax_vector = id.5, normalise = TRUE)
+
+amp_heatmap(amp.ff.a.5,
+            tax_show = 100,
+            tax_aggregate = "OTU",
+            tax_add = "Genus",
+            group_by = "Time",
+            plot_values_size = 4,
+            showRemainingTaxa = TRUE, normalise = FALSE)
+
+```
+
+```{r, eval=FALSE}
+
+pargs2 <- list(rep.num=300, seed=10010, ncores=12)
+t2 <- system.time(
+se2 <- spiec.easi(ps.f2.c, method='mb', lambda.min.ratio=1e-3, nlambda=30,
+              sel.criterion='stars', pulsar.select=TRUE, pulsar.params=pargs2)
+)
+
+net3.c <- se2
+
+```
+
+<!-- igfull.c \<- adj2igraph(getRefit(netfull.c), -->
+<!-- vertex.attr=list(name=taxa_names(ps.f2.c))) -->
+
+<!-- modfull.a \<- cluster_fast_greedy(igfull.a) modfull.c \<- -->
+<!-- cluster_fast_greedy(igfull.c) -->
+
+<!-- print(modfull.a) print(modules.c) -->
+
+<!-- ig.a.mod \<- ig.a V(ig.a.mod)$color <- mod.a$membership plot(ig.a.mod, -->
+<!-- col = modules, vertex.size = 4, vertex.label = NA) -->
+
+<!-- ig.a.mod \<- igfull.a V(ig.a.mod)$color <- modfull.a$membership ig.a.mod -->
+<!-- plot(ig.a.mod, col = modfull.a, vertex.size = 4, vertex.label = NA) -->
+
+```{r}
+
+ig.a.mod <- igfull.c
+V(ig.a.mod)$color <-  modfull.c$membership
+plot(ig.a.mod, col = modfull.c, vertex.size = 4, vertex.label = NA)
+
+```
+
+```{r, eval=FALSE}
+
+library(Hmisc)
+library(Matrix)
+
+ps.ff.c
+
+some_ps <- prune_taxa(taxa_sums(ps.f) > 300 , ps.f) 
+otu_table <- ps.ff.c@otu_table@.Data
+
+otu.cor <- rcorr(otu_table, type="spearman")
+otu.pval <- forceSymmetric(otu.cor$P)
+p.yes <- otu.pval<0.05
+r.val <-  otu.cor$r
+p.yes.r <- r.val*p.yes
+p.yes.r <- abs(p.yes.r)>0.75
+p.yes.rr <- p.yes.r*r.val
+tax <- as.data.frame(some_ps@tax_table@.Data)
+adjm <- as.matrix(p.yes.rr)
+
+colnames(adjm) <- as.vector(tax$Family)
+rownames(adjm) <- as.vector(tax$Family)
+
+net.grph <- graph.adjacency(adjm,mode="undirected",weighted=TRUE,diag=FALSE)
+
+edgew<-E(net.grph)$weight
+bad.vs<-V(net.grph)[degree(net.grph) == 0] 
+net.grph <-delete.vertices(net.grph, bad.vs)
+E(net.grph)$weight <- E(net.grph)$weight / sum(E(net.grph)$weight)
+
+plot_network(net.grph, some_ps, type='taxa', color='name')
+
+E(net.grph)$weight[E(net.grph)$weight <= 0] <- 0.1
+E(net.grph)$weight %>% sort()
+
+```
+
+### jabberwocky about groups
+
+Based on ANCOM-BC real abundance score
+
+```{r, eval=FALSE, cache=TRUE}
+
+out.f2.a <-  ANCOMBC::ancombc2(data=ps.f2.a, 
+  fix_formula = "Repeat",
+  prv_cut = 0,
+  p_adj_method = "BH",
+  tax_level = NULL,
+  rand_formula= NULL,
+  pseudo = 0, 
+  pseudo_sens = FALSE,
+  s0_perc = 0.05,
+  group = "Repeat",
+  struc_zero = FALSE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 20, 
+  verbose = TRUE,
+  global = FALSE, 
+  pairwise = FALSE, 
+  dunnet = FALSE, 
+  trend = FALSE
+  )
+
+out.f2.c <-  ANCOMBC::ancombc2(data=ps.f2.c, 
+  fix_formula = "Repeat",
+  prv_cut = 0,
+  p_adj_method = "BH",
+  tax_level = NULL,
+  rand_formula= NULL,
+  pseudo = 0, 
+  pseudo_sens = FALSE,
+  s0_perc = 0.05,
+  group = "Repeat",
+  struc_zero = FALSE,
+  neg_lb = TRUE,
+  alpha = 0.05,
+  n_cl = 20, 
+  verbose = TRUE,
+  global = FALSE, 
+  pairwise = FALSE, 
+  dunnet = FALSE, 
+  trend = FALSE
+  )
+
+
+```
+
+
+```{r, eval=FALSE}
+
+saveRDS(out.f2.a, 'out.f2.a')
+saveRDS(out.f2.c, 'out.f2.c')
+
+```
+
+
+```{r, fig.height=5, fig.width=6}
+
+out.f2.a <- readRDS('out.f2.a')
+out.f2.c <- readRDS('out.f2.c')
+
+norm_anc <- function(ps, anc){
+  samp_frac <-  anc$samp_frac
+  samp_frac[is.na(samp_frac)] <-  0 
+  log_obs_abn <-  log(anc$feature_table + 1)
+  log_corr_abn <-  t(t(log_obs_abn) - samp_frac)
+  ps.out <- ps
+  otu_table(ps.out) <- otu_table(t(log_corr_abn), taxa_are_rows = FALSE)
+  return(ps.out)
+}
+
+ps.f2.a.anc <- norm_anc(ps.f2.a, out.f2.a)
+ps.f2.c.anc <- norm_anc(ps.f2.c, out.f2.c)
+
+beta_custom_norm_NMDS_elli_w(ps.f2.a.anc, Color = "Repeat", Group = "Repeat")
+beta_custom_norm_NMDS_elli_w(ps.f2.c.anc, Color = "Repeat", Group = "Repeat")
+
+```
+
+```{r}
+
+ggnet2(ig.a.mod, node.color = "color", label = TRUE, node.size = "nodesize", label.size = 2) + 
+  guides(color=guide_legend(title="color"), size = FALSE)  + 
+  scale_color_manual(values = pl_pal)
+
+wtc.ig.a.mod <- cluster_walktrap(ig.a.mod)
+wtc.ig.c.mod <- cluster_walktrap(ig.c.mod)
+
+modularity(wtc.ig.a.mod)
+modularity(wtc.ig.c.mod)
+
+```
+
+```{r, fig.height=4, fig.width=8}
+
+library(GGally)
+
+set.seed(1516)
+
+pl_pal <-  viridis::magma(n = 9) 
+# option = "magma", aesthetics = "color", begin = 0.8, end = 0.001
+
+p.net.a <- ggnet2(ig.a.mod, 
+        size ="0.7",
+       node.color = "color", 
+       label = FALSE, 
+       node.size = 2, 
+       label.size = 1,
+       mode = "kamadakawai") + 
+  guides(color=guide_legend(title="color"), size = FALSE)  + 
+  scale_color_manual(values = pl_pal) +
+    theme(legend.position="none")  + 
+  ggtitle('A', subtitle = 'modularity - 0.28')
+
+p.net.c <- ggnet2(ig.c.mod, 
+      size ="0.7",
+       node.color = "color", 
+       label = FALSE, 
+      node.size = 2, 
+       label.size = 1,
+       mode = "kamadakawai") + 
+  guides(color=guide_legend(title="Groups"), size = FALSE)  + 
+  scale_color_manual(values = pl_pal)  +
+    theme(legend.position="none")  + 
+  ggtitle('C', subtitle = 'modularity - 0.33')
+
+ggarrange(p.net.a, p.net.c)
+
+```
+
+
+Groups taxonomy for A
+
+```{r, fig.height=8, fig.width=10}
+
+tx <- left_join(groups.a, ps.f2.a.anc@tax_table@.Data %>% data.frame() %>% rownames_to_column('ID')) %>% 
+  add_column(abnd = taxa_sums(ps.f2.a.anc))
+
+
+tx %>% 
+  mutate(Phylum = case_when(Phylum %in% "Proteobacteria" ~ Class,
+                            !Phylum %in% "Proteobacteria" ~ Phylum) %>% as.factor()) %>% 
+  select(c("Genus", "Phylum", "Group", "abnd")) %>% 
+  mutate(Group = as.factor(Group)) %>% 
+  group_by(Genus, Phylum, Group) %>%
+  mutate(Genus = str_replace_na(Genus, replacement = ' ') %>% as.factor()) %>% 
+  summarise(area = sum(abnd)) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  drop_na() %>% 
+  filter(Group %in% c('1', '2', '4', '8')) %>% 
+  ggplot(aes(area = area, 
+             subgroup = Phylum, 
+             label = Genus,
+             fill = Group)) +
+  treemapify::geom_treemap() +
+  treemapify::geom_treemap_subgroup_border(color = "white") +
+  treemapify::geom_treemap_subgroup_text(place = "centre", 
+                                         grow = T, 
+                                         alpha = 0.7, 
+                                         colour = "black", 
+                                         fontface = "italic", 
+                                         min.size = 2) +
+  treemapify::geom_treemap_text(colour = "white", 
+                                place = "topleft", 
+                                grow = T, 
+                                reflow = T, 
+                                layout = 'squarified',
+                                min.size = 4) +
+  facet_wrap(~Group, labeller = labeller(Group = 
+    c("1" = "Group1, rel=9.16%, ASVs=84",
+      "2" = "Group2, rel=30.97%, ASVs=164",
+      "4" = "Group4, rel=29.17%, ASVs=141",
+      "8" = "Group8, rel=25.06%, ASVs=160"))) +
+  # ggforce::facet_wrap(Group ~ ., scales = "free", space = "free") +
+  scale_colour_viridis_d(option = "plasma", 
+                         aesthetics = "fill", 
+                         begin = 0.2, 
+                         end = 0.7) +
+  theme(legend.position="bottom") 
+
+```
+
+
+### Try to add some ecological stats
+
+```{r, eval=FALSE}
+
+tx$Group
+
+library(ggtree)
+
+tree <- ps.f2.a.anc@phy_tree
+ids <- tx %>%  filter(Group == '1') %>% pull(ID)
+parent_nodes <- sapply(ids, function(x) ape::getMRCA(tree, tree$tip.label[str_detect(tree$tip.label, x)]))
+
+parent_nodes <- Filter(Negate(is.null), parent_nodes)
+ggtree(tree,  layout="fan") + geom_highlight(node = parent_nodes[3]) 
+  # geom_tiplab() +
+  # xlim(NA, 8)
+p <- ggtree(tree,  layout="fan") 
+
+
+library(picante)
+
+
+data(phylocom)
+phylocom$phylo
+phylocom$sample
+tree
+
+df <- tx %>% select(c('ID', 'Group')) %>% 
+  mutate(Group = as.factor(Group)) %>% 
+  column_to_rownames('ID')
+
+dff <- tx %>% select(c('ID', 'Group')) %>% 
+  mutate(Group = as.factor(Group)) 
+
+dummy_recipe <-recipes::recipe(Group ~ ID, dff) %>% 
+    recipes::step_dummy(Group)
+  
+df_dummy <- dummy_recipe %>% 
+    recipes::prep() %>% 
+    recipes::bake(new_data=NULL) %>%
+    column_to_rownames('ID')
+
+matrix_dummy <- df_dummy %>% 
+  t()
+
+df_double_dummy <- matrix_dummy %>% as.data.frame() %>% as.matrix()
+df_double_dummy
+str(matrix_dummy)
+
+cophenetic(tree)
+picante::ses.mpd(df_double_dummy, cophenetic(tree))
+
+gheatmap(p, df, offset=0, width=.3,
+               colnames_angle=95, colnames_offset_y = .9, legend_title = "Cluster") +
+    scale_fill_viridis_d(option="turbo", name="discrete\nvalue")
+
+ 
+```
+
+
+```{r}
+
+sum(tx$abnd)
+summa.table <- tx %>% 
+  dplyr::select(c(Group, abnd)) %>% 
+  dplyr::group_by(Group) %>% 
+  dplyr::summarise(Sum_relative = round(sum(abnd) / sum(tx$abnd) * 100, 2),
+            Asv_count = n()) %>%
+  # mutate(Asv_count = as.integer(Asv_count)) %>% 
+  mutate(Group_2 = Group) %>% 
+  column_to_rownames('Group') %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  rownames_to_column('Group')
+
+summa.table
+lapply(summa.table, function(x) paste0('Group', x[3], ', rel=', x[1], '%, ASVs=', x[2]))   %>% unlist(use.names = FALSE)
+
+```
+
+
+Groups taxonomy for C
+
+```{r, fig.height=8, fig.width=10}
+
+tx <- left_join(groups.c, ps.f2.c.anc@tax_table@.Data %>% data.frame() %>% rownames_to_column('ID')) %>% 
+  add_column(abnd = taxa_sums(ps.f2.c.anc))
+
+tx %>% 
+  mutate(Phylum = case_when(Phylum %in% "Proteobacteria" ~ Class,
+                            !Phylum %in% "Proteobacteria" ~ Phylum) %>% as.factor()) %>% 
+  select(c("Genus", "Phylum", "Group", "abnd")) %>% 
+  mutate(Group = as.factor(Group)) %>% 
+  group_by(Genus, Phylum, Group) %>%
+  mutate(Genus = str_replace_na(Genus, replacement = ' ') %>% as.factor()) %>% 
+  summarise(area = sum(abnd)) %>% 
+  mutate_if(is.character, as.factor) %>% 
+  drop_na() %>% 
+  filter(Group %in% c('1', '2', '4', '6','7','9')) %>% 
+  ggplot(aes(area = area, 
+             subgroup = Phylum, 
+             label = Genus,
+             fill = Group)) +
+  treemapify::geom_treemap() +
+  treemapify::geom_treemap_subgroup_border(color = "white") +
+  treemapify::geom_treemap_subgroup_text(place = "centre", 
+                                         grow = T, 
+                                         alpha = 0.7, 
+                                         colour = "black", 
+                                         fontface = "italic", 
+                                         min.size = 2) +
+  treemapify::geom_treemap_text(colour = "white", 
+                                place = "topleft", 
+                                grow = T, 
+                                reflow = T, 
+                                layout = 'squarified',
+                                min.size = 4) +
+  facet_wrap(~Group, labeller = labeller(Group = 
+    c("1" = "Group1, rel=8.44%, ASVs=40",
+      "2" = "Group2, rel=21.35%, ASVs=58",
+      "4" = "Group4, rel=15.66%, ASVs=76",
+      "6" = "Group6, rel=10.94%, ASVs=26",
+      "7" = "Group7, rel=18.25%, ASVs=55",
+      "9" = "Group9, rel=19.66%, ASVs=68" ))) +
+  # ggforce::facet_wrap(Group ~ ., scales = "free", space = "free") +
+  scale_colour_viridis_d(option = "plasma", 
+                         aesthetics = "fill", 
+                         begin = 0.2, 
+                         end = 0.7) +
+  theme(legend.position="bottom") 
+
+```
+
+
+```{r}
+
+summa.table <- tx %>% 
+  dplyr::select(c(Group, abnd)) %>% 
+  dplyr::group_by(Group) %>% 
+  dplyr::summarise(Sum_relative = round(sum(abnd) / sum(tx$abnd) * 100, 2),
+            Asv_count = n()) %>%
+  # mutate(Asv_count = as.integer(Asv_count)) %>% 
+  mutate(Group_2 = Group) %>% 
+  column_to_rownames('Group') %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  rownames_to_column('Group')
+
+summa.table
+lapply(summa.table, function(x) paste0('Group', x[3], ', rel=', x[1], '%, ASVs=', x[2]))   %>% unlist(use.names = FALSE)
+
+```
+
+```{r, eval=FALSE}
+
+tree <- ps.f2.c.anc@phy_tree
+p <- ggtree(tree,  layout="fan") 
+
+
+df <- tx %>% select(c('ID', 'Group')) %>% 
+  mutate(Group = as.factor(Group)) %>% 
+  column_to_rownames('ID')
+
+dff <- tx %>% select(c('ID', 'Group')) %>% 
+  mutate(Group = as.factor(Group)) 
+
+dummy_recipe <-recipes::recipe(Group ~ ID, dff) %>% 
+    recipes::step_dummy(Group)
+  
+df_dummy <- dummy_recipe %>% 
+    recipes::prep() %>% 
+    recipes::bake(new_data=NULL) %>%
+    column_to_rownames('ID')
+
+matrix_dummy <- df_dummy %>% 
+  t()
+
+df_double_dummy <- matrix_dummy %>% as.data.frame() %>% as.matrix()
+df_double_dummy
+str(matrix_dummy)
+
+cophenetic(tree)
+picante::ses.mpd(matrix_dummy, cophenetic(tree))
+
+
+df <- tx %>% select(c('ID', 'Group')) %>% 
+  filter(Group %in% c(1, 2, 4, 6 ,7, 9)) %>% 
+  mutate(Group = as.factor(Group)) %>% 
+  column_to_rownames('ID')
+
+gheatmap(p, df, offset=0, width=.3,
+               colnames_angle=95, colnames_offset_y = .9, legend_title = "Cluster") +
+    scale_fill_viridis_d(option="turbo", name="discrete\nvalue")
+
+
+mpd(matrix_dummy,  cophenetic(tree), abundance.weighted=FALSE)
+
+```
+
+### adding aspiration plots
+
+
+```{r}
+
+ps.f.r <- rarefy_even_depth(ps.f, rngseed = 1213)
+er <- estimate_richness(ps.f.r)
+
+```
+
+```{r}
+
+ps.f.r <- rarefy_even_depth(ps.f, rngseed = 1433) 
+
+estimate_richness(ps.f.r) %>% 
+  rownames_to_column("ID") %>% 
+  mutate(ID = str_sub(ID, 2)) %>% 
+  left_join(ps.f@sam_data %>%  data.frame() %>%  rownames_to_column("ID")) %>% 
+  # group_by(Substrate, Time, Respiration) %>% 
+  # summarise(Observed = mean(Observed),
+  #           Shannon = mean(Shannon),
+  #           InvSimpson = mean(InvSimpson)) %>%
+  group_by(Substrate) %>% 
+  mutate(
+    Observed = scale(Observed),
+    Shannon = scale(Shannon),
+    InvSimpson = scale(InvSimpson),
+    Respiration = scale(Respiration)
+  ) %>% 
+  pivot_longer(c( "Observed", "Shannon", "InvSimpson", "Respiration")) %>% 
+  mutate(name = factor(name, levels = c("Observed", "Shannon", "InvSimpson", "Respiration"))) %>% 
+  ggplot(aes(y = value, x = Time, group = name)) +
+    # geom_line(aes(color = name),
+    #         alpha = 1) +
+    stat_summary(aes(y = value, color = name), fun.y=mean, geom="line") +
+    labs(x = "day",
+       y = "z-scaled value") +
+  geom_point(aes(shape = name, color = name)) +
+  facet_wrap(~ Substrate, nrow = 2) +
+    scale_colour_viridis_d(option = "magma", 
+                         aesthetics = "color", 
+                         begin = 0.8, 
+                         end = 0.001) +
+  theme_bw()
+
+
+
+```
+
+### finals plots
+
+```{r, fig.height= 5.5, fig.width=10}
+
+p.beta.16 <- beta_custom_norm_NMDS_elli_w(ps.f, Group = "Repeat", Color = "Substrate")
+p.beta.its <- beta_custom_norm_NMDS_elli_w(psits.f, Group = "Repeat", Color = "Substrate")
+
+p.beta.16.mod <- p.beta.16 + 
+  ggtitle('16S', subtitle = 'NMDS - Bray-Curtis dissimilarity') 
+p.beta.its.mod <- p.beta.its +
+  ggtitle('ITS2', subtitle = 'NMDS - Bray-Curtis dissimilarity') 
+  
+ggarrange(p.beta.16.mod, p.beta.its.mod)
+
+```
+
+```{r}
+
+beta_custom_norm_NMDS_elli_w
+
+```
+
+
+### formal stats trashae
+
+```{r}
+
+dist <- phyloseq::distance(ps.f, "euclidean")
+metadata <- as(sample_data(ps.f@sam_data), "data.frame")
+vegan::adonis2(dist ~ Substrate + Time, data = metadata)
+
+```
+
+```{r}
+
+dist <- phyloseq::distance(ps.f, "euclidean")
+metadata <- as(sample_data(ps.f@sam_data), "data.frame")
+vegan::adonis2(dist ~ Substrate + Time, data = metadata)
+
+```
+
+```{r}
+
+dist <- phyloseq::distance(psits.f, "euclidean")
+metadata <- as(sample_data(psits.f@sam_data), "data.frame")
+vegan::adonis2(dist ~ Substrate + Time, data = metadata)
+
+```
